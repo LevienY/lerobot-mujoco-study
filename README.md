@@ -123,10 +123,13 @@ To evaluate the policy on the dataset, you can calculate the error between groun
 <details>
     <summary>PicklingError: Can't pickle <function <lambda> at 0x131d1bd00>: attribute lookup <lambda> on __main__ failed</summary>
 If you have a pickling error, 
+        
 ```
 PicklingError: Can't pickle <function <lambda> at 0x131d1bd00>: attribute lookup <lambda> on __main__ failed
 ```
+
 Please set your num_workers as 0, like, 
+
 ```
 dataloader = torch.utils.data.DataLoader(
     dataset,
