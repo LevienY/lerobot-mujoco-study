@@ -10,7 +10,7 @@ git clone https://github.com/huggingface/lerobot.git
 cd lerobot
 pip install -e .
 ```
-We do not recommend installing lerobot package with `pip install lerobot`. This causes errors. 
+I do **not** recommend installing lerobot package with `pip install lerobot`. This causes errors. 
 
 Install mujoco package dependencies.
 ```
