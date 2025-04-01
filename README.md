@@ -10,6 +10,7 @@ git clone https://github.com/huggingface/lerobot.git
 cd lerobot
 pip install -e .
 ```
+We do not recommend installing lerobot package with `pip install lerobot`. This causes errors. 
 
 Install mujoco package dependencies.
 ```
@@ -119,6 +120,24 @@ To evaluate the policy on the dataset, you can calculate the error between groun
 
 <image src="./media/inference.png"  width="480" height="360">
 
+<details>
+    <summary>PicklingError: Can't pickle <function <lambda> at 0x131d1bd00>: attribute lookup <lambda> on __main__ failed</summary>
+If you have a pickling error, 
+```
+PicklingError: Can't pickle <function <lambda> at 0x131d1bd00>: attribute lookup <lambda> on __main__ failed
+```
+Please set your num_workers as 0, like, 
+```
+dataloader = torch.utils.data.DataLoader(
+    dataset,
+    num_workers=0, # 4
+    batch_size=64,
+    shuffle=True,
+    pin_memory=device.type != "cpu",
+    drop_last=True,
+)
+```
+</details>
 
 ## 4. Deploy your Policy
 
