@@ -25,6 +25,15 @@ cd asset/objaverse
 unzip plate_11.zip
 ```
 
+### Updates & Plans
+
+:white_check_mark: Viewer Update.
+
+:heavy_check_mark: Add different mugs, plates for different language instructions.
+
+:heavy_check_mark: Add pi_0 training and inference. 
+
+
 ## 1. Collection Demonstration Data
 
 Run [1.collect_data.ipynb](1.collect_data.ipynb)

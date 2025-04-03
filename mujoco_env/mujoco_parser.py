@@ -8,13 +8,14 @@ import cv2
 import numpy as np
 from threading import Lock
 
-MUJOCO_VERSION=tuple(map(int,mujoco.__version__.split('.')))
+MUJOCO_VERSION = tuple(map(int,mujoco.__version__.split('.')))
 
 from .transforms import (
     t2p,
     t2r,
     pr2t,
     r2quat,
+    quat2r,
     r2w,
     rpy2r,
     meters2xyz,
@@ -47,26 +48,45 @@ class MinimalCallbacks:
         self._loop_count                 = 0
         self._advance_by_one_step        = False
         # Keyboard 
-        self._key_pressed                = []
+        self._key_pressed                = None
         self._is_key_pressed             = False
+        # Keyboard buffer
+        self._key_pressed_set            = set()
+        self._key_repeated_set           = set()
         
     def _key_callback(self, window, key, scancode, action, mods):
-        # if action != glfw.RELEASEL
-        # if key == glfw.KEY_SPACE and self._paused is not None:
+        """
+            Key callback        
+        """
+
+        # Flags for key pressed 
+        is_key_pressed  = (action==glfw.PRESS)
+        is_key_released = (action==glfw.RELEASE)
+        is_key_repeated = (action==glfw.REPEAT)
+        
+        # Add and discard keys
+        if is_key_pressed:
+            self._key_pressed_set.add(key)
+        if is_key_repeated:
+            self._key_repeated_set.add(key)
+        if is_key_released:
+            # Remove from pressed and repeated lists (if present)
+            self._key_pressed_set.discard(key)
+            self._key_repeated_set.discard(key)
+        
+        # Pause / resume handling (space)
+        # if is_key_pressed and (key==glfw.KEY_SPACE) and (self._paused is not None):
         #     self._paused = not self._paused
-        # # Advances simulation by one step.
-        # elif key == glfw.KEY_RIGHT and self._paused is not None:
-        #     self._advance_by_one_step = True
-        #     self._paused = True
-        if action == glfw.PRESS:
-            self._key_pressed.append(key)
-        self._is_key_pressed = True
-        if action == glfw.RELEASE:
-            self._is_key_pressed = False
-            self._key_pressed.remove(key)
-        # Quit
-        if key == glfw.KEY_ESCAPE:
+
+        # Quit (escape)
+        if (key==glfw.KEY_ESCAPE):
             glfw.set_window_should_close(self.window, True)
+
+        # Store key pressed (legacy)
+        self._key_pressed    = key 
+        self._is_key_pressed = True
+        
+        # Return
         return
 
     def _cursor_pos_callback(self, window, xpos, ypos):
@@ -179,12 +199,6 @@ class MuJoCoMinimalViewer(MinimalCallbacks):
             perturbation      = True,
             use_rgb_overlay   = True,
             loc_rgb_overlay   = 'top right',
-            use_rgb_overlay_2 = False,
-            loc_rgb_overlay_2 = 'bottom right',
-            use_rgb_overlay_3   = False,
-            loc_rgb_overlay_3 = 'top left',
-            use_rgb_overlay_4   = False,
-            loc_rgb_overlay_4 = 'bottom left',
         ):
         super().__init__(hide_menus)
 
@@ -266,101 +280,15 @@ class MuJoCoMinimalViewer(MinimalCallbacks):
         self._overlay = {}
         self._markers = []
         
-        # rgb image to render
+        # rgb image to overlay (legacy)
         self.use_rgb_overlay = use_rgb_overlay
-        if self.use_rgb_overlay:
-            rgb_h,rgb_w = height//4,width//4
-            self.rgb_overlay = np.zeros((rgb_h,rgb_w,3))
-            if loc_rgb_overlay == 'top right':
-                left   = 3*rgb_w
-                bottom = 3*rgb_h    
-            elif loc_rgb_overlay == 'top left':
-                left   = 0*rgb_w
-                bottom = 3*rgb_h
-            elif loc_rgb_overlay == 'bottom right':
-                left   = 3*rgb_w
-                bottom = 0*rgb_h
-            elif loc_rgb_overlay == 'bottom left':
-                left   = 0*rgb_w
-                bottom = 0*rgb_h
-            self.viewport_rgb_render = mujoco.MjrRect(
-                left   = left,
-                bottom = bottom,
-                width  = rgb_w,
-                height = rgb_h,
-            )
-            
-        # rgb image to render (2)
-        self.use_rgb_overlay_2 = use_rgb_overlay_2
-        if self.use_rgb_overlay_2:
-            rgb_h,rgb_w = height//4,width//4
-            self.rgb_overlay_2 = np.zeros((rgb_h,rgb_w,3))
-            if loc_rgb_overlay_2 == 'top right':
-                left   = 3*rgb_w
-                bottom = 3*rgb_h    
-            elif loc_rgb_overlay_2 == 'top left':
-                left   = 0*rgb_w
-                bottom = 3*rgb_h
-            elif loc_rgb_overlay_2 == 'bottom right':
-                left   = 3*rgb_w
-                bottom = 0*rgb_h
-            elif loc_rgb_overlay_2 == 'bottom left':
-                left   = 0*rgb_w
-                bottom = 0*rgb_h
-            self.viewport_rgb_render_2 = mujoco.MjrRect(
-                left   = left,
-                bottom = bottom,
-                width  = rgb_w,
-                height = rgb_h,
-            )
+        self.loc_rgb_overlay = loc_rgb_overlay
 
-        # rgb image to render (3)
-        self.use_rgb_overlay_3 = use_rgb_overlay_3
-        if self.use_rgb_overlay_3:
-            rgb_h,rgb_w = height//4,width//4
-            self.rgb_overlay_3 = np.zeros((rgb_h,rgb_w,3))
-            if loc_rgb_overlay_3 == 'top right':
-                left   = 3*rgb_w
-                bottom = 3*rgb_h    
-            elif loc_rgb_overlay_3 == 'top left':
-                left   = 0*rgb_w
-                bottom = 3*rgb_h
-            elif loc_rgb_overlay_3 == 'bottom right':
-                left   = 3*rgb_w
-                bottom = 0*rgb_h
-            elif loc_rgb_overlay_3 == 'bottom left':
-                left   = 0*rgb_w
-                bottom = 0*rgb_h
-            self.viewport_rgb_render_3 = mujoco.MjrRect(
-                left   = left,
-                bottom = bottom,
-                width  = rgb_w,
-                height = rgb_h,
-            )
-
-        # rgb image to render (4)
-        self.use_rgb_overlay_4 = use_rgb_overlay_4
-        if self.use_rgb_overlay_4:
-            rgb_h,rgb_w = height//4,width//4
-            self.rgb_overlay_4 = np.zeros((rgb_h,rgb_w,3))
-            if loc_rgb_overlay_4 == 'top right':
-                left   = 3*rgb_w
-                bottom = 3*rgb_h    
-            elif loc_rgb_overlay_4 == 'top left':
-                left   = 0*rgb_w
-                bottom = 3*rgb_h
-            elif loc_rgb_overlay_4 == 'bottom right':
-                left   = 3*rgb_w
-                bottom = 0*rgb_h
-            elif loc_rgb_overlay_4 == 'bottom left':
-                left   = 0*rgb_w
-                bottom = 0*rgb_h
-            self.viewport_rgb_render_4 = mujoco.MjrRect(
-                left   = left,
-                bottom = bottom,
-                width  = rgb_w,
-                height = rgb_h,
-            )
+        # rgb images to overlay
+        self.rgb_overlay_top_right    = None
+        self.rgb_overlay_top_left     = None
+        self.rgb_overlay_bottom_right = None
+        self.rgb_overlay_bottom_left  = None        
         
         # Perturbation
         self.perturbation = perturbation
@@ -380,6 +308,7 @@ class MuJoCoMinimalViewer(MinimalCallbacks):
         g.objtype = mujoco.mjtObj.mjOBJ_UNKNOWN
         g.objid = -1
         g.category = mujoco.mjtCatBit.mjCAT_DECOR
+        # g.matid = -1 # newly added (by Jihwan, 2025-02-27)
         """
             mujoco version 3.2 is NOT backward-compatible
         """
@@ -392,23 +321,24 @@ class MuJoCoMinimalViewer(MinimalCallbacks):
             g.texrepeat[0] = 1
             g.texrepeat[1] = 1
         
-        g.emission = 0
-        g.specular = 0.5
-        g.shininess = 0.5
+        g.emission    = 0
+        g.specular    = 0.5
+        g.shininess   = 0.5
         g.reflectance = 0
-        g.type = mujoco.mjtGeom.mjGEOM_BOX
-        g.size[:] = np.ones(3) * 0.1
-        g.mat[:] = np.eye(3)
-        g.rgba[:] = np.ones(4)
+        g.type        = mujoco.mjtGeom.mjGEOM_BOX
+        g.size[:]     = np.ones(3) * 0.1
+        g.mat[:]      = np.eye(3)
+        g.rgba[:]     = np.ones(4)
 
         for key, value in marker.items():
+            # setattr(g, key, value)
             if isinstance(value, (int, float, mujoco._enums.mjtGeom)):
                 setattr(g, key, value)
             elif isinstance(value, (tuple, list, np.ndarray)):
                 attr = getattr(g, key)
                 attr[:] = np.asarray(value).reshape(attr.shape)
             elif isinstance(value, str):
-                assert key == "label", "Only label is a string in mjtGeom."
+                # assert key == "label", "Only label is a string in mjtGeom."
                 if value is None:
                     g.label[0] = 0
                 else:
@@ -419,6 +349,8 @@ class MuJoCoMinimalViewer(MinimalCallbacks):
                         key, type(value)))
             else:
                 raise ValueError("mjtGeom doesn't have field %s" % key)
+            
+        # Increment number of geoms
         self.scn.ngeom += 1
         return
 
@@ -466,7 +398,7 @@ class MuJoCoMinimalViewer(MinimalCallbacks):
 
     def add_overlay(
             self,
-            loc     = None,
+            loc     = 'bottom left',
             gridpos = mujoco.mjtGridPos.mjGRID_TOPLEFT,
             text1   = '',
             text2   = '',
@@ -514,7 +446,7 @@ class MuJoCoMinimalViewer(MinimalCallbacks):
         #     text1   = "A",
         #     text2   = "B",
         # )
-        
+    
     def add_line(
             self,
             fig_idx    = 0,
@@ -552,20 +484,10 @@ class MuJoCoMinimalViewer(MinimalCallbacks):
     def add_rgb_overlay(self,rgb_img_raw,fix_ratio=False):
         """
             Set RGB image to render 
-            Usage:
-            env.init_viewer(
-                black_sky       = True,
-                use_rgb_overlay = True,
-                loc_rgb_overlay = 'top right',
-            )
-            ...
-            # Render iamge
-            rgb_img = env.get_egocentric_rgb(
-                p_ego  = np.array([3,0,3]),
-                p_trgt = np.array([0,0,0]),
-            )
-            env.viewer.add_rgb_overlay(rgb_img_raw=rgb_img)
         """
+        width,height = glfw.get_framebuffer_size(self.window)
+        rgb_h,rgb_w = height//4,width//4
+        self.rgb_overlay = np.zeros((rgb_h,rgb_w,3))
         (h,w) = self.rgb_overlay.shape[:2]
         if fix_ratio: # fix aspect ratio
             h_raw, w_raw = rgb_img_raw.shape[:2]
@@ -585,83 +507,61 @@ class MuJoCoMinimalViewer(MinimalCallbacks):
             rgb_img_rsz = padded_img  # Final resized and padded image
         else:
             rgb_img_rsz = cv2.resize(rgb_img_raw,(w,h),interpolation=cv2.INTER_NEAREST)
-        self.rgb_overlay = rgb_img_rsz#[::-1,...]
-        
-    def add_rgb_overlay_2(self,rgb_img_raw,fix_ratio=False):
-        """
-            Set image to render 
-        """
-        (h,w) = self.rgb_overlay_2.shape[:2]
-        if fix_ratio: # fix aspect ratio
-            h_raw, w_raw = rgb_img_raw.shape[:2]
-            # Calculate scale to preserve aspect ratio
-            scale = min(w / w_raw, h / h_raw)
-            new_w = int(w_raw * scale)
-            new_h = int(h_raw * scale)
-            # Resize the image while preserving the aspect ratio
-            resized_img = cv2.resize(rgb_img_raw, (new_w, new_h), interpolation=cv2.INTER_NEAREST)
-            # Create a black canvas with the target size
-            padded_img = np.zeros((h, w, 3), dtype=np.uint8)
-            # Calculate the top-left corner for centering the resized image
-            x_offset = (w - new_w) // 2
-            y_offset = (h - new_h) // 2
-            # Place the resized image onto the canvas
-            padded_img[y_offset:y_offset + new_h, x_offset:x_offset + new_w] = resized_img
-            rgb_img_rsz = padded_img  # Final resized and padded image
-        else:
-            rgb_img_rsz = cv2.resize(rgb_img_raw,(w,h),interpolation=cv2.INTER_NEAREST)
-        self.rgb_overlay_2 = rgb_img_rsz
-    
-    def add_rgb_overlay_3(self,rgb_img_raw,fix_ratio=False):
-        """
-            Set image to render 
-        """
-        (h,w) = self.rgb_overlay_3.shape[:2]
-        if fix_ratio: # fix aspect ratio
-            h_raw, w_raw = rgb_img_raw.shape[:2]
-            # Calculate scale to preserve aspect ratio
-            scale = min(w / w_raw, h / h_raw)
-            new_w = int(w_raw * scale)
-            new_h = int(h_raw * scale)
-            # Resize the image while preserving the aspect ratio
-            resized_img = cv2.resize(rgb_img_raw, (new_w, new_h), interpolation=cv2.INTER_NEAREST)
-            # Create a black canvas with the target size
-            padded_img = np.zeros((h, w, 3), dtype=np.uint8)
-            # Calculate the top-left corner for centering the resized image
-            x_offset = (w - new_w) // 2
-            y_offset = (h - new_h) // 2
-            # Place the resized image onto the canvas
-            padded_img[y_offset:y_offset + new_h, x_offset:x_offset + new_w] = resized_img
-            rgb_img_rsz = padded_img  # Final resized and padded image
-        else:
-            rgb_img_rsz = cv2.resize(rgb_img_raw,(w,h),interpolation=cv2.INTER_NEAREST)
-        self.rgb_overlay_3 = rgb_img_rsz
-        
-    def add_rgb_overlay_4(self,rgb_img_raw,fix_ratio=False):
-        """
-            Set image to render 
-        """
-        (h,w) = self.rgb_overlay_4.shape[:2]
-        if fix_ratio: # fix aspect ratio
-            h_raw, w_raw = rgb_img_raw.shape[:2]
-            # Calculate scale to preserve aspect ratio
-            scale = min(w / w_raw, h / h_raw)
-            new_w = int(w_raw * scale)
-            new_h = int(h_raw * scale)
-            # Resize the image while preserving the aspect ratio
-            resized_img = cv2.resize(rgb_img_raw, (new_w, new_h), interpolation=cv2.INTER_NEAREST)
-            # Create a black canvas with the target size
-            padded_img = np.zeros((h, w, 3), dtype=np.uint8)
-            # Calculate the top-left corner for centering the resized image
-            x_offset = (w - new_w) // 2
-            y_offset = (h - new_h) // 2
-            # Place the resized image onto the canvas
-            padded_img[y_offset:y_offset + new_h, x_offset:x_offset + new_w] = resized_img
-            rgb_img_rsz = padded_img  # Final resized and padded image
-        else:
-            rgb_img_rsz = cv2.resize(rgb_img_raw,(w,h),interpolation=cv2.INTER_NEAREST)
-        self.rgb_overlay_4 = rgb_img_rsz
+        self.rgb_overlay = rgb_img_rsz
 
+    def plot_rgb_overlay(self,rgb=None,loc='top right'):
+        """
+            loc:['top right','top left','bottom right','bottom left']
+        """
+        w_window,h_window = glfw.get_framebuffer_size(self.window)
+        h_overlay,w_overlay = h_window//4,w_window//4
+        rgb_overlay = np.zeros((h_overlay,w_overlay,3))
+        # Fix aspect ratio
+        h_raw,w_raw = rgb.shape[:2]
+        # Calculate scale to preserve aspect ratio
+        scale = min(w_overlay/w_raw,h_overlay/h_raw)
+        w_new = int(w_raw*scale)
+        h_new = int(h_raw*scale)
+        # Resize
+        rgb_resized = cv2.resize(rgb,(w_new,h_new),interpolation=cv2.INTER_NEAREST)
+        # Create a black canvas with the target size
+        rgb_padded = np.zeros((h_overlay,w_overlay,3),dtype=np.uint8)
+        # Calculate the top-left corner for centering the resized image
+        x_offset = (w_overlay-w_new) // 2
+        y_offset = (h_overlay-h_new) // 2
+        # Place the resized image onto the canvas
+        rgb_padded[y_offset:y_offset+h_new,x_offset:x_offset+w_new] = rgb_resized
+        # Store the RGB overlay
+        if loc=='top right':
+            self.rgb_overlay_top_right = rgb_padded
+        elif loc=='top left':
+            self.rgb_overlay_top_left = rgb_padded
+        elif loc=='bottom right':
+            self.rgb_overlay_bottom_right = rgb_padded
+        elif loc=='bottom left':
+            self.rgb_overlay_bottom_left = rgb_padded
+        else:
+            print ("Invalid location for RGB overlay. Use 'top right', 'top left', 'bottom right', or 'bottom left'.")
+
+    def reset_rgb_overlay(self,loc=None):
+        """
+            loc:['top right','top left','bottom right','bottom left']
+        """
+        if loc is None:
+            self.rgb_overlay_top_right    = None
+            self.rgb_overlay_top_left     = None
+            self.rgb_overlay_bottom_right = None
+            self.rgb_overlay_bottom_left  = None
+        else:
+            if loc=='top_right':
+                self.rgb_overlay_top_right = None
+            if loc=='top left':
+                self.rgb_overlay_top_left = None
+            if loc=='bottom right':
+                self.rgb_overlay_bottom_right = None
+            if loc=='bottom left':
+                self.rgb_overlay_bottom_left = None
+    
     def render(self):
         if not self.is_alive:
             raise Exception(
@@ -717,37 +617,91 @@ class MuJoCoMinimalViewer(MinimalCallbacks):
                     # Plot
                     mujoco.mjr_figure(viewport, fig, self.ctx)
                     
-                # rgb image overlay
+                # roverlay rgb images (legacy)
                 if self.use_rgb_overlay:
+                    rgb_h,rgb_w = height//4,width//4
+                    if self.loc_rgb_overlay == 'top right':
+                        left   = 3*rgb_w
+                        bottom = 3*rgb_h
+                    elif self.loc_rgb_overlay == 'top left':
+                        left   = 0*rgb_w
+                        bottom = 3*rgb_h
+                    elif self.loc_rgb_overlay == 'bottom right':
+                        left   = 3*rgb_w
+                        bottom = 0*rgb_h
+                    elif self.loc_rgb_overlay == 'bottom left':
+                        left   = 0*rgb_w
+                        bottom = 0*rgb_h
+                    else:
+                        print ("Invalid location for RGB overlay. Use 'top right', 'top left', 'bottom right', or 'bottom left'.")
+                    self.viewport_rgb_render = mujoco.MjrRect(
+                        left   = left,
+                        bottom = bottom,
+                        width  = rgb_w,
+                        height = rgb_h,
+                    )
                     mujoco.mjr_drawPixels(
                         rgb      = np.flipud(self.rgb_overlay).flatten(),
                         depth    = None,
                         viewport = self.viewport_rgb_render,
                         con      = self.ctx,
                     )
-                
-                # rgb image overlay (2)
-                if self.use_rgb_overlay_2:
-                    mujoco.mjr_drawPixels(
-                        rgb      = np.flipud(self.rgb_overlay_2).flatten(),
-                        depth    = None,
-                        viewport = self.viewport_rgb_render_2,
-                        con      = self.ctx,
-                    )
 
-                if self.use_rgb_overlay_3:
+                # overlay rgb images
+                if self.rgb_overlay_top_right is not None:
+                    h_overlay,w_overlay = self.rgb_overlay_top_right.shape[:2]
+                    viewport_rgb_top_right = mujoco.MjrRect(
+                        left   = 3*w_overlay,
+                        bottom = 3*h_overlay,
+                        width  = w_overlay,
+                        height = h_overlay,
+                    )
                     mujoco.mjr_drawPixels(
-                        rgb      = np.flipud(self.rgb_overlay_3).flatten(),
+                        rgb      = np.flipud(self.rgb_overlay_top_right).flatten(),
                         depth    = None,
-                        viewport = self.viewport_rgb_render_3,
+                        viewport = viewport_rgb_top_right,
                         con      = self.ctx,
                     )
-                
-                if self.use_rgb_overlay_4:
+                if self.rgb_overlay_top_left is not None:
+                    h_overlay,w_overlay = self.rgb_overlay_top_left.shape[:2]
+                    viewport_rgb_top_left = mujoco.MjrRect(
+                        left   = 0*w_overlay,
+                        bottom = 3*h_overlay,
+                        width  = w_overlay,
+                        height = h_overlay,
+                    )
                     mujoco.mjr_drawPixels(
-                        rgb      = np.flipud(self.rgb_overlay_4).flatten(),
+                        rgb      = np.flipud(self.rgb_overlay_top_left).flatten(),
                         depth    = None,
-                        viewport = self.viewport_rgb_render_4,
+                        viewport = viewport_rgb_top_left,
+                        con      = self.ctx,
+                    )
+                if self.rgb_overlay_bottom_right is not None:
+                    h_overlay,w_overlay = self.rgb_overlay_bottom_right.shape[:2]
+                    viewport_rgb_bottom_right = mujoco.MjrRect(
+                        left   = 3*w_overlay,
+                        bottom = 0*h_overlay,
+                        width  = w_overlay,
+                        height = h_overlay,
+                    )
+                    mujoco.mjr_drawPixels(
+                        rgb      = np.flipud(self.rgb_overlay_bottom_right).flatten(),
+                        depth    = None,
+                        viewport = viewport_rgb_bottom_right,
+                        con      = self.ctx,
+                    )
+                if self.rgb_overlay_bottom_left is not None:
+                    h_overlay,w_overlay = self.rgb_overlay_bottom_left.shape[:2]
+                    viewport_rgb_bottom_left = mujoco.MjrRect(
+                        left   = 0*w_overlay,
+                        bottom = 0*h_overlay,
+                        width  = w_overlay,
+                        height = h_overlay,
+                    )
+                    mujoco.mjr_drawPixels(
+                        rgb      = np.flipud(self.rgb_overlay_bottom_left).flatten(),
+                        depth    = None,
+                        viewport = viewport_rgb_bottom_left,
                         con      = self.ctx,
                     )
                 
@@ -757,7 +711,7 @@ class MuJoCoMinimalViewer(MinimalCallbacks):
             self._time_per_render = 0.9 * self._time_per_render + \
                 0.1 * (time.time() - render_start)
 
-        if self._paused:
+        if self._paused: # if paused
             while self._paused:
                 update()
                 if glfw.window_should_close(self.window):
@@ -797,7 +751,7 @@ class MuJoCoParserClass(object):
     """
     def __init__(
             self,
-            name          = 'Robot',
+            name          = None,
             rel_xml_path  = None,
             xml_string    = None,
             assets        = None,
@@ -817,12 +771,17 @@ class MuJoCoParserClass(object):
         self.render_tick       = 0
         self.use_mujoco_viewer = False
         
-        # Tic-toc
-        self.tt = TicTocClass(name='env:[%s]'%(self.name))
-        
         # Parse xml file
         if (self.rel_xml_path is not None) or (self.xml_string is not None):
             self._parse_xml()
+        if self.name is None:
+            self.name = self.model_name 
+
+        # Tic-toc
+        self.tt = TicTocClass(name='env:[%s]'%(self.name))
+        
+        # Monitor size
+        self.monitor_width,self.monitor_height = get_monitor_size()
             
         # Print
         if self.verbose:
@@ -837,15 +796,32 @@ class MuJoCoParserClass(object):
         """
         if self.rel_xml_path is not None:
             self.full_xml_path = os.path.abspath(os.path.join(os.getcwd(),self.rel_xml_path))
-            print(self.full_xml_path)
             self.model         = mujoco.MjModel.from_xml_path(self.full_xml_path)
         
         if self.xml_string is not None:
             self.model = mujoco.MjModel.from_xml_string(xml=self.xml_string,assets=self.assets)
+            
+        # Parse xml model name
+        parsed_strings = [s for s in self.model.names.split(b'\x00') if s] 
+        parsed_strings = [s.decode('utf-8') for s in parsed_strings]
+        self.model_name = parsed_strings[0]
         
         self.data             = mujoco.MjData(self.model)
         self.dt               = self.model.opt.timestep
         self.HZ               = int(1/self.dt)
+        
+        # Integrator (https://mujoco.readthedocs.io/en/latest/APIreference/APItypes.html#mjtintegrator)
+        self.integrator       = self.model.opt.integrator
+        if self.integrator == mujoco.mjtIntegrator.mjINT_EULER:
+            self.integrator_name = 'EULER'
+        elif self.integrator == mujoco.mjtIntegrator.mjINT_RK4:
+            self.integrator_name = 'RK4'
+        elif self.integrator == mujoco.mjtIntegrator.mjINT_IMPLICIT:
+            self.integrator_name = 'IMPLICIT'
+        elif self.integrator == mujoco.mjtIntegrator.mjINT_IMPLICITFAST:
+            self.integrator_name = 'IMPLICITFAST'
+        else:
+            self.integrator_name = 'UNKNOWN'
         
         # State and action space
         self.n_qpos           = self.model.nq # number of states
@@ -856,6 +832,11 @@ class MuJoCoParserClass(object):
         self.n_geom           = self.model.ngeom # number of geometries
         self.geom_names       = [mujoco.mj_id2name(self.model,mujoco.mjtObj.mjOBJ_GEOM,geom_idx)
                                  for geom_idx in range(self.model.ngeom)]
+        
+        # Mesh
+        self.n_mesh           = self.model.nmesh # number of meshes
+        self.mesh_names       = [mujoco.mj_id2name(self.model,mujoco.mjtObj.mjOBJ_MESH,mesh_idx)
+                                 for mesh_idx in range(self.model.nmesh)]
         
         # Body
         self.n_body           = self.model.nbody # number of bodies
@@ -881,6 +862,8 @@ class MuJoCoParserClass(object):
                                  for joint_idx in range(self.n_joint)]
         self.joint_types      = self.model.jnt_type # joint types
         self.joint_ranges     = self.model.jnt_range # joint ranges
+        self.joint_mins       = self.joint_ranges[:,0]
+        self.joint_maxs       = self.joint_ranges[:,1]
         
         # Free joint
         self.free_joint_idxs  = np.where(self.joint_types==mujoco.mjtJoint.mjJNT_FREE)[0].astype(np.int32)
@@ -902,6 +885,14 @@ class MuJoCoParserClass(object):
         self.pri_joint_mins   = self.joint_ranges[self.pri_joint_idxs,0]
         self.pri_joint_maxs   = self.joint_ranges[self.pri_joint_idxs,1]
         self.pri_joint_ranges = self.pri_joint_maxs - self.pri_joint_mins
+
+        # Revolute + Prismatic Joint Information
+        self.n_rev_pri_joint      = self.n_rev_joint + self.n_pri_joint
+        self.rev_pri_joint_idxs   = np.concatenate([self.rev_joint_idxs,self.pri_joint_idxs])
+        self.rev_pri_joint_names  = self.rev_joint_names + self.pri_joint_names
+        self.rev_pri_joint_mins   = np.concatenate([self.rev_joint_mins,self.pri_joint_mins])
+        self.rev_pri_joint_maxs   = np.concatenate([self.rev_joint_maxs,self.pri_joint_maxs])
+        self.rev_pri_joint_ranges = self.rev_pri_joint_maxs - self.rev_pri_joint_mins
         
         # Controls
         self.n_ctrl           = self.model.nu # number of actuators (or controls)
@@ -916,7 +907,6 @@ class MuJoCoParserClass(object):
         self.n_cam            = self.model.ncam
         self.cam_names        = [mujoco.mj_id2name(self.model,mujoco.mjtObj.mjOBJ_CAMERA,cam_idx) 
                                  for cam_idx in range(self.n_cam)]
-        print(self.cam_names)
         self.cams             = []
         self.cam_fovs         = []
         self.cam_viewports    = []
@@ -977,8 +967,11 @@ class MuJoCoParserClass(object):
         """ 
             Print model information
         """
+        print ("")
+        print ("-----------------------------------------------------------------------------")
         print ("name:[%s] dt:[%.3f] HZ:[%d]"%(self.name,self.dt,self.HZ))
-        print ("n_qpos:[%d] n_qvel:[%d] n_qacc:[%d] n_ctrl:[%d]"%(self.n_qpos,self.n_qvel,self.n_qacc,self.n_ctrl))
+        print (" n_qpos:[%d] n_qvel:[%d] n_qacc:[%d] n_ctrl:[%d]"%(self.n_qpos,self.n_qvel,self.n_qacc,self.n_ctrl))
+        print (" integrator:[%s]"%(self.integrator_name))
 
         print ("")
         print ("n_body:[%d]"%(self.n_body))
@@ -990,6 +983,10 @@ class MuJoCoParserClass(object):
         print ("")
         print ("n_geom:[%d]"%(self.n_geom))
         print ("geom_names:%s"%(self.geom_names))
+
+        print ("")
+        print ("n_mesh:[%d]"%(self.n_mesh))
+        print ("mesh_names:%s"%(self.mesh_names))
 
         print ("")
         print ("n_joint:[%d]"%(self.n_joint))
@@ -1039,6 +1036,49 @@ class MuJoCoParserClass(object):
         print ("sensor_names:%s"%(self.sensor_names))
         print ("n_site:[%d]"%(self.n_site))
         print ("site_names:%s"%(self.site_names))
+        print ("-----------------------------------------------------------------------------")
+        
+    def print_body_joint_info(self):
+        """ 
+            Print body and joint information (with more details)
+        """
+        from termcolor import colored
+        # Summarize kinematic chain information
+        JOINT_TYPE_MAP = {
+            mujoco.mjtJoint.mjJNT_FREE: 'free',
+            mujoco.mjtJoint.mjJNT_HINGE: 'revolute',
+            mujoco.mjtJoint.mjJNT_SLIDE: 'prismatic',
+        }
+        for body_idx in range(self.n_body):
+            # Parse body information
+            body_name = self.body_names[body_idx] # body name
+            body = self.model.body(body_name) # mujoco body object
+            parent_body_name = self.body_names[body.parentid[0]]
+            p_body_offset,quat_body_offset = body.pos,body.quat # body offset
+            T_body_offset = pr2t(p_body_offset,quat2r(quat_body_offset)) # [4x4]
+            print ("[%2d/%d] body_name:[%s] parent_body_name:[%s]"%
+                (body_idx,self.n_body,colored(body_name,'green'),colored(parent_body_name,'green')))
+            print (" body p_offset:[%.2f,%.2f,%.2f] quat_offset:[%.2f,%.2f,%.2f,%.2f]"%
+                (p_body_offset[0],p_body_offset[1],p_body_offset[2],
+                    quat_body_offset[0],quat_body_offset[1],quat_body_offset[2],quat_body_offset[3]))
+            # Parse joint information
+            n_joint = body.jntnum # number of attached joints 
+            if n_joint == 0: # fixed joint
+                print (" n_joint:[0] (%s)"%(colored('this body has no joint','blue')))
+            elif n_joint == 1: # one moving joint (revolute or prismatic)
+                joint = self.model.joint(body.jntadr[0]) # joint attached joint
+                joint_name = joint.name
+                joint_type = JOINT_TYPE_MAP[joint.type[0]]
+                p_joint_offset,joint_axis = joint.pos,joint.axis
+                print (" joint_name:[%s] n_joint:%s type:[%s]"%
+                    (colored(joint_name,'green'),n_joint,colored('%s'%(joint_type),'green')))
+                print (" joint p_offset:[%.2f,%.2f,%.2f] axis:[%.1f,%.1f,%.1f]"%
+                    (p_joint_offset[0],p_joint_offset[1],p_joint_offset[2],
+                        joint_axis[0],joint_axis[1],joint_axis[2]))
+            else: # composite joints (not supported)
+                print (" n_joint:%s (%s)"%
+                    (n_joint,colored('composite joints','red')))
+            print ("")
         
     def reset(self,step=True):
         """
@@ -1055,8 +1095,10 @@ class MuJoCoParserClass(object):
         self.tick        = 0
         self.render_tick = 0
         # Reset wall time
-        self.init_sim_time  = self.data.time
-        self.init_wall_time = time.time()
+        self.init_sim_time    = self.data.time
+        self.init_wall_time   = time.time()
+        self.accum_wall_time  = 0.0  # 누적 wall 시간
+        self.last_wall_update = time.time()
         # Others
         self.xyz_left_double_click = None 
         self.xyz_right_double_click = None 
@@ -1091,23 +1133,46 @@ class MuJoCoParserClass(object):
             geomgroup_4       = None,
             geomgroup_5       = None,
             update            = False,
-            maxgeom           = 10000,
+            maxgeom           = 50000,
             perturbation      = True,
             black_sky         = False,
             convex_hull       = None,
             n_fig             = 0,
             use_rgb_overlay   = False,
             loc_rgb_overlay   = 'top right',
-            use_rgb_overlay_2 = False,
-            loc_rgb_overlay_2 = 'bottom right',
-            use_rgb_overlay_3   = False,
-            loc_rgb_overlay_3 = 'top left',
-            use_rgb_overlay_4   = False,
-            loc_rgb_overlay_4 = 'bottom left',
             pre_render        = False,
         ):
-        """ 
-            Initialize viewer
+        """
+        Initialize the MuJoCo viewer with the given parameters.
+        
+        Parameters:
+            title (str): Viewer window title.
+            fullscreen (bool): Whether to use fullscreen mode.
+            width (int): Width of the viewer window.
+            height (int): Height of the viewer window.
+            hide_menu (bool): Whether to hide the viewer menu.
+            fontscale: Font scaling factor.
+            azimuth (float): Initial camera azimuth angle.
+            distance (float): Initial camera distance.
+            elevation (float): Initial camera elevation.
+            lookat (list or np.array): Initial camera look-at position.
+            transparent, contactpoint, contactwidth, contactheight, contactrgba:
+                Parameters for contact point visualization.
+            joint, jointlength, jointwidth, jointrgba:
+                Parameters for joint visualization.
+            geomgroup_0 ~ geomgroup_5: Geometry group visibility flags.
+            update (bool): Whether to immediately update the viewer.
+            maxgeom (int): Maximum number of geometries.
+            perturbation (bool): Whether to allow perturbation.
+            black_sky (bool): Whether to render a black skybox.
+            convex_hull: Flag for convex hull visualization.
+            n_fig (int): Number of figures for overlay plotting.
+            use_rgb_overlay (bool): Whether to use an RGB overlay.
+            loc_rgb_overlay (str): Location of the first RGB overlay.
+            pre_render (bool): Whether to perform an initial render.
+        
+        Returns:
+            None
         """
         self.use_mujoco_viewer = True
         if title is None: title = self.name
@@ -1135,12 +1200,6 @@ class MuJoCoParserClass(object):
             n_fig             = n_fig,
             use_rgb_overlay   = use_rgb_overlay,
             loc_rgb_overlay   = loc_rgb_overlay,
-            use_rgb_overlay_2 = use_rgb_overlay_2,
-            loc_rgb_overlay_2 = loc_rgb_overlay_2,
-            use_rgb_overlay_3 = use_rgb_overlay_3,
-            loc_rgb_overlay_3 = loc_rgb_overlay_3,
-            use_rgb_overlay_4 = use_rgb_overlay_4,
-            loc_rgb_overlay_4 = loc_rgb_overlay_4,
         )
         self.viewer.ctx = mujoco.MjrContext(self.model,fontscale)
         
@@ -1198,8 +1257,30 @@ class MuJoCoParserClass(object):
             convex_hull   = None,
             update        = False,
         ):
-        """ 
-            Set MuJoCo Viewer
+        """
+        Set or update the viewer’s camera and visualization parameters.
+        
+        Parameters:
+            azimuth (float): Camera azimuth angle.
+            distance (float): Camera distance.
+            elevation (float): Camera elevation angle.
+            lookat (list or np.array): Camera look-at position.
+            transparent (bool): Flag for making dynamic geometries transparent.
+            contactpoint (bool): Flag for displaying contact points.
+            contactwidth (float): Contact point width.
+            contactheight (float): Contact point height.
+            contactrgba (list): RGBA color for contact points.
+            joint (bool): Flag for joint visualization.
+            jointlength (float): Length of joint visuals.
+            jointwidth (float): Width of joint visuals.
+            jointrgba (list): RGBA color for joints.
+            geomgroup_0 ~ geomgroup_5: Visibility flags for geometry groups.
+            black_sky (bool): Flag for enabling/disabling skybox.
+            convex_hull (bool): Flag for convex hull visualization.
+            update (bool): If True, perform an immediate update.
+        
+        Returns:
+            None
         """
         # Basic viewer setting (azimuth, distance, elevation, and lookat)
         if azimuth is not None: self.viewer.cam.azimuth = azimuth
@@ -1240,7 +1321,13 @@ class MuJoCoParserClass(object):
             
     def get_viewer_cam_info(self,verbose=False):
         """
-            Get viewer cam information
+        Retrieve the current camera parameters from the viewer.
+        
+        Parameters:
+            verbose (bool): If True, print camera info.
+        
+        Returns:
+            tuple: (azimuth, distance, elevation, lookat) of the camera.
         """
         azimuth   = self.viewer.cam.azimuth
         distance  = self.viewer.cam.distance
@@ -1253,20 +1340,57 @@ class MuJoCoParserClass(object):
     
     def is_viewer_alive(self):
         """
-            Check whether a viewer is alive
+        Check whether the viewer window is still active.
+        
+        Returns:
+            bool: True if the viewer is alive, False otherwise.
         """
         return self.viewer.is_alive
     
     def close_viewer(self):
         """
-            Close viewer
+        Close and clean up the viewer resources.
+        
+        Returns:
+            None
         """
         self.use_mujoco_viewer = False
         self.viewer.close()
 
+    def viewer_text_overlay(
+            self,
+            loc   = 'bottom left',
+            text1 = '',
+            text2 = '',
+        ):
+        """ 
+            Add text overlay on the viewer
+            Parameters:
+                loc: ['top','top right','top left','bottom','bottom right','bottom left']
+                text1: string
+                text2: string
+        """
+        self.viewer.add_overlay(loc=loc,text1=text1,text2=text2)
+
+    def viewer_rgb_overlay(
+            self,
+            rgb = None,
+            loc = 'top right',
+        ):
+        """ 
+            Add RGB overlay on the viewer
+            Parameters:
+                loc: ['top','top right','top left','bottom','bottom right','bottom left']
+                rgb: RGB image
+        """
+        self.viewer.plot_rgb_overlay(rgb=rgb,loc=loc)
+
     def render(self):
         """
-            Render
+        Render the current simulation state to the viewer.
+        
+        Returns:
+            None
         """
         if self.use_mujoco_viewer:
             self.viewer.render()
@@ -1275,7 +1399,14 @@ class MuJoCoParserClass(object):
             
     def loop_every(self,HZ=None,tick_every=None):
         """
-            Loop every
+        Determine if the simulation loop should execute based on simulation tick or frequency.
+        
+        Parameters:
+            HZ (float): Frequency in Hz to trigger the loop.
+            tick_every (int): Number of simulation ticks between executions.
+        
+        Returns:
+            bool: True if the loop should execute, False otherwise.
         """
         # tick = int(self.get_sim_time()/self.dt)
         FLAG = False
@@ -1287,35 +1418,59 @@ class MuJoCoParserClass(object):
     
     def step(
             self,
-            ctrl          = None,
-            ctrl_idxs     = None,
-            ctrl_names    = None,
-            joint_names   = None,
-            nstep         = 1,
-            increase_tick = True,
+            ctrl             = None,
+            ctrl_idxs        = None,
+            ctrl_names       = None,
+            joint_names      = None,
+            nstep            = 1,
+            increase_tick    = True,
+            step_flag        = True,
         ):
         """
-            Forward dynamics
-        """
-        if ctrl is not None:
-            
-            if ctrl_names is not None: # when given 'ctrl_names' explicitly
-                ctrl_idxs = get_idxs(self.ctrl_names,ctrl_names)
-            elif joint_names is not None: # when given 'joint_names' explicitly
-                ctrl_idxs = self.get_idxs_step(joint_names=joint_names)
-                
-            # Apply control
-            if ctrl_idxs is None: 
-                self.data.ctrl[:] = ctrl
-            else: 
-                self.data.ctrl[ctrl_idxs] = ctrl
-        mujoco.mj_step(self.model,self.data,nstep=nstep)
-        if increase_tick: 
-            self.increase_tick()
+        Advance the simulation by a specified number of steps, optionally applying control inputs.
         
+        Parameters:
+            ctrl (np.array): Control inputs to apply.
+            ctrl_idxs (list): Indices of controls to update.
+            ctrl_names (list): Names of controls to update.
+            joint_names (list): Names of joints corresponding to controls.
+            nstep (int): Number of simulation steps to execute.
+            increase_tick (bool): Whether to increment the simulation tick counter.
+        
+        Returns:
+            None
+        """
+        if step_flag:
+            if ctrl is not None:
+                if ctrl_names is not None: # when given 'ctrl_names' explicitly
+                    ctrl_idxs = get_idxs(self.ctrl_names,ctrl_names)
+                elif joint_names is not None: # when given 'joint_names' explicitly
+                    ctrl_idxs = self.get_idxs_step(joint_names=joint_names)            
+                # Apply control
+                if ctrl_idxs is None: 
+                    self.data.ctrl[:] = ctrl
+                else: 
+                    self.data.ctrl[ctrl_idxs] = ctrl
+            mujoco.mj_step(self.model,self.data,nstep=nstep)
+        
+        # Update wall time (conditioned on 'step_flag')
+        self.increase_wall_time(step_flag=step_flag)
+
+        # Increase tick
+        if increase_tick: self.increase_tick()
+
     def forward(self,q=None,joint_idxs=None,joint_names=None,increase_tick=True):
         """
-            Forward kinematics
+        Compute the forward kinematics of the system, optionally updating joint positions.
+        
+        Parameters:
+            q (np.array): Joint positions to set.
+            joint_idxs (list): Indices of joints to update.
+            joint_names (list): Names of joints to update.
+            increase_tick (bool): Whether to increment the simulation tick counter.
+        
+        Returns:
+            None
         """
         if q is not None:
             if joint_names is not None: # if 'joint_names' is not None, it override 'joint_idxs'
@@ -1327,23 +1482,39 @@ class MuJoCoParserClass(object):
         if increase_tick: 
             self.increase_tick()
 
+    def increase_wall_time(self,step_flag=True):
+        """
+        Increment the accumulated wall time.
+        """
+        current_wall_time = time.time()
+        if step_flag:
+            # Increment wall time only when 'step_flag' is True
+            self.accum_wall_time += current_wall_time - self.last_wall_update
+        self.last_wall_update = current_wall_time
+
     def increase_tick(self):
-        """ 
-            Increase tick
+        """
+        Increment the simulation tick counter.
+        
+        Returns:
+            None
         """
         self.tick = self.tick + 1
 
     def get_state(self):
         """ 
-            Get MuJoCo state (tick, time, qpos, qvel, act)
-            ...
-            The state vector in MuJoCo is:
-                x = (mjData.time, mjData.qpos, mjData.qvel, mjData.act)
-            Next we turn to the controls and applied forces. The control vector in MuJoCo is
-                u = (mjData.ctrl, mjData.qfrc_applied, mjData.xfrc_applied)
-            These quantities specify control signals (mjData.ctrl) for the actuators defined in the model, 
-            or directly apply forces and torques specified in joint space (mjData.qfrc_applied) 
-            or in Cartesian space (mjData.xfrc_applied).
+        Retrieve the current simulation state including time, joint positions, velocities, and actuator states.
+        
+        Returns:
+            dict: A dictionary containing state information.
+
+        The state vector in MuJoCo is:
+            x = (mjData.time, mjData.qpos, mjData.qvel, mjData.act)
+        Next we turn to the controls and applied forces. The control vector in MuJoCo is
+            u = (mjData.ctrl, mjData.qfrc_applied, mjData.xfrc_applied)
+        These quantities specify control signals (mjData.ctrl) for the actuators defined in the model, 
+        or directly apply forces and torques specified in joint space (mjData.qfrc_applied) 
+        or in Cartesian space (mjData.xfrc_applied).
         """
         state = {
             'tick':self.tick,
@@ -1355,15 +1526,21 @@ class MuJoCoParserClass(object):
         return state
     
     def store_state(self):
-        """ 
-            Store MuJoCo state
+        """
+        Store the current simulation state for later restoration.
+        
+        Returns:
+            None
         """
         state = self.get_state()
         self.state_stored = copy.deepcopy(state) # deep copy
         
     def restore_state(self):
-        """ 
-            Restore MuJoCo state
+        """
+        Restore the simulation state from a previously stored state.
+        
+        Returns:
+            None
         """
         state = self.state_stored
         self.set_state(
@@ -1383,8 +1560,20 @@ class MuJoCoParserClass(object):
             ctrl = None,
             step = False
         ):
-        """ 
-            Set MuJoCo state
+        """
+        Set the simulation state with provided values.
+        
+        Parameters:
+            tick (int): Simulation tick.
+            time (float): Simulation time.
+            qpos (np.array): Joint positions.
+            qvel (np.array): Joint velocities.
+            act (np.array): Actuator states.
+            ctrl (np.array): Control signals.
+            step (bool): If True, perform a simulation step after setting the state.
+        
+        Returns:
+            None
         """
         if tick is not None: self.tick = tick
         if time is not None: self.data.time = time
@@ -1397,8 +1586,14 @@ class MuJoCoParserClass(object):
             mujoco.mj_step(self.model,self.data)
             
     def solve_inverse_dynamics(self,qacc=None):
-        """ 
-            Solve Inverse Dynamics
+        """
+        Solve inverse dynamics to compute the forces required to achieve the given joint accelerations.
+        
+        Parameters:
+            qacc (np.array): Desired joint accelerations.
+        
+        Returns:
+            np.array: The computed inverse dynamics forces.
         """
         if qacc is None:
             qacc = np.zeros(self.n_qacc)
@@ -1418,27 +1613,70 @@ class MuJoCoParserClass(object):
         qfrc_inverse = self.data.qfrc_inverse # [n_qacc]
         return qfrc_inverse.copy()
     
-    def set_p_base_body(self,body_name='base',p=np.array([0,0,0])):
-        """ 
-            Set position of base body
+    def set_p_base_body(self,body_name='base',p=np.array([0,0,0]),forward=True):
+        """
+        Set the position of the base body.
+        
+        Parameters:
+            body_name (str): Name of the base body.
+            p (np.array): New position (3D vector).
+        
+        Returns:
+            None
         """
         jntadr  = self.model.body(body_name).jntadr[0]
         qposadr = self.model.jnt_qposadr[jntadr]
         self.data.qpos[qposadr:qposadr+3] = p
-        mujoco.mj_forward(self.model,self.data)
+        if forward:
+            mujoco.mj_forward(self.model,self.data)
         
     def set_R_base_body(self,body_name='base',R=rpy2r(np.radians([0,0,0]))):
-        """ 
-            Set Rotation of base body
+        """
+        Set the orientation of the base body.
+        
+        Parameters:
+            body_name (str): Name of the base body.
+            R (np.array): New rotation matrix (3x3).
+        
+        Returns:
+            None
         """
         jntadr  = self.model.body(body_name).jntadr[0]
         qposadr = self.model.jnt_qposadr[jntadr]
         self.data.qpos[qposadr+3:qposadr+7] = r2quat(R)
         mujoco.mj_forward(self.model,self.data)
+
+    def set_pR_base_body(self,body_name='base',p=np.array([0,0,0]),R=np.eye(3),T=None):
+        """
+        Set the pose (position and rotation) of the base body.
         
+        Parameters:
+            body_name (str): Name of the base body.
+            p (np.array): New position (3D vector).
+            R (np.array): New rotation matrix (3x3).
+            T (np.array): Transformation matrix (4x4) that overrides p and R if provided.
+        
+        Returns:
+            None
+        """
+        if T is not None: # if T is not None, it overrides p and R
+            p = t2p(T)
+            R = t2r(T)
+        self.set_p_base_body(body_name=body_name,p=p)
+        self.set_R_base_body(body_name=body_name,R=R)
+                
     def set_T_base_body(self,body_name='base',p=np.array([0,0,0]),R=np.eye(3),T=None):
-        """ 
-            Set Pose of base body
+        """
+        Set the pose of the base body using a transformation matrix.
+        
+        Parameters:
+            body_name (str): Name of the base body.
+            p (np.array): Position vector.
+            R (np.array): Rotation matrix.
+            T (np.array): Transformation matrix that, if provided, overrides p and R.
+        
+        Returns:
+            None
         """
         if T is not None: # if T is not None, it overrides p and R
             p = t2p(T)
@@ -1447,26 +1685,114 @@ class MuJoCoParserClass(object):
         self.set_R_base_body(body_name=body_name,R=R)
         
     def set_p_body(self,body_name='base',p=np.array([0,0,0]),forward=True):
-        """ 
-            Set position of body (not base body)
+        """
+        Set the position of a specified body.
+        
+        Parameters:
+            body_name (str): Name of the body.
+            p (np.array): New position (3D vector).
+            forward (bool): If True, perform forward kinematics after setting.
+        
+        Returns:
+            None
         """
         self.model.body(body_name).pos = p
         if forward: self.forward(increase_tick=False)
         
     def set_R_body(self,body_name='base',R=np.eye(3),forward=True):
-        """ 
-            Set rotation of body (not base body)
+        """
+        Set the orientation of a specified body.
+        
+        Parameters:
+            body_name (str): Name of the body.
+            R (np.array): New rotation matrix (3x3).
+            forward (bool): If True, perform forward kinematics after setting.
+        
+        Returns:
+            None
         """
         self.model.body(body_name).quat = r2quat(R)
         if forward: self.forward(increase_tick=False)
         
     def set_pR_body(self,body_name='base',p=np.array([0,0,0]),R=np.eye(3),forward=True):
         """
-            Set p and R of body
+        Set both the position and orientation of a specified body.
+        
+        Parameters:
+            body_name (str): Name of the body.
+            p (np.array): New position.
+            R (np.array): New rotation matrix.
+            forward (bool): Whether to perform forward kinematics after updating.
+        
+        Returns:
+            None
         """
         self.model.body(body_name).pos = p
         self.model.body(body_name).quat = r2quat(R)
         if forward: self.forward(increase_tick=False)
+
+    def set_T_body(self,body_name='base',p=np.array([0,0,0]),R=np.eye(3),T=None,forward=True):
+        """
+        Set both the position and orientation of a specified body.
+        
+        Parameters:
+            body_name (str): Name of the body.
+            p (np.array): New position.
+            R (np.array): New rotation matrix.
+            forward (bool): Whether to perform forward kinematics after updating.
+        
+        Returns:
+            None
+        """
+        if T is not None: # if T is not None, it overrides p and R
+            p = t2p(T)
+            R = t2r(T)
+        self.model.body(body_name).pos = p
+        self.model.body(body_name).quat = r2quat(R)
+        if forward: self.forward(increase_tick=False)        
+        
+    def set_p_mocap(self,mocap_name='',p=np.array([0,0,0])):
+        """
+        Set the position of a mocap body.
+        
+        Parameters:
+            mocap_name (str): Name of the mocap body.
+            p (np.array): New position.
+        
+        Returns:
+            None
+        """
+        mocap_idx = self.model.body_mocapid[self.body_names.index(mocap_name)]
+        self.data.mocap_pos[mocap_idx] = p
+        
+    def set_R_mocap(self,mocap_name='',R=np.eye(3)):
+        """
+        Set the orientation of a mocap body.
+        
+        Parameters:
+            mocap_name (str): Name of the mocap body.
+            R (np.array): New rotation matrix.
+        
+        Returns:
+            None
+        """
+        mocap_idx = self.model.body_mocapid[self.body_names.index(mocap_name)]
+        self.data.mocap_quat[mocap_idx] = r2quat(R)
+
+    def set_pR_mocap(self,mocap_name='',p=np.array([0,0,0]),R=np.eye(3)):
+        """
+        Set the pose of a mocap body.
+        
+        Parameters:
+            mocap_name (str): Name of the mocap body.
+            p (np.array): New position.
+            R (np.array): New rotation matrix.
+        
+        Returns:
+            None
+        """
+        self.set_p_mocap(mocap_name=mocap_name,p=p)
+        self.set_R_mocap(mocap_name=mocap_name,R=R)
         
     def set_geom_color(
             self,
@@ -1477,7 +1803,17 @@ class MuJoCoParserClass(object):
             rgba_list             = None,
         ):
         """
-            Set body color
+        Set the color for geometries attached to specified bodies.
+        
+        Parameters:
+            body_names_to_color (list): List of body names to color.
+            body_names_to_exclude (list): Bodies to exclude.
+            body_names_to_exclude_including (list): Bodies containing these substrings are excluded.
+            rgba (list): Default RGBA color.
+            rgba_list (list): List of RGBA colors corresponding to each body.
+        
+        Returns:
+            None
         """
         def should_exclude(x, exclude_list):
             for exclude in exclude_list:
@@ -1503,7 +1839,14 @@ class MuJoCoParserClass(object):
                     
     def set_geom_alpha(self,alpha=1.0,body_names_to_exclude=['world']):
         """
-            Set geometry alpha
+        Set the transparency (alpha) value for geometries.
+        
+        Parameters:
+            alpha (float): Transparency value (0 to 1).
+            body_names_to_exclude (list): Bodies to exclude from this change.
+        
+        Returns:
+            None
         """
         for g_idx in range(self.n_geom): # for each geom
             geom = self.model.geom(g_idx)
@@ -1514,7 +1857,13 @@ class MuJoCoParserClass(object):
             
     def get_sim_time(self,init_flag=False):
         """
-            Get simulation time (sec)
+        Get the elapsed simulation time since initialization.
+        
+        Parameters:
+            init_flag (bool): If True, reset the simulation time reference.
+        
+        Returns:
+            float: Elapsed simulation time in seconds.
         """
         if init_flag:
             self.init_sim_time = self.data.time
@@ -1523,28 +1872,43 @@ class MuJoCoParserClass(object):
     
     def reset_sim_time(self):
         """
-            Reset simulation time (sec)
+        Reset the simulation time reference.
+        
+        Returns:
+            None
         """
         self.init_sim_time = self.data.time
         
     def reset_wall_time(self):
-        """ 
-            Reset wall-clock time (sec)
+        """
+        Reset the wall-clock time reference.
+        
+        Returns:
+            None
         """
         self.init_wall_time = time.time()
         
     def get_wall_time(self,init_flag=False):
-        """ 
-            Get wall clock time
+        """
+        Get the elapsed wall-clock time since the last reset.
+        
+        Parameters:
+            init_flag (bool): If True, reset the wall clock reference.
+        
+        Returns:
+            float: Elapsed wall time in seconds.
         """
         if init_flag:
-            self.init_wall_time = time.time()
-        elapsed_time = time.time() - self.init_wall_time # second
-        return elapsed_time
+            self.accum_wall_time = 0.0
+            self.last_wall_update = time.time()
+        return self.accum_wall_time
     
     def grab_rgbd_img(self):
         """
-            Grab RGB and Depth images
+        Capture an RGB-D image (color and depth) from the current viewer.
+        
+        Returns:
+            tuple: (rgb_img, depth_img) where rgb_img is a uint8 image and depth_img is a float32 image.
         """
         rgb_img   = np.zeros((self.viewer.viewport.height,self.viewer.viewport.width,3),dtype=np.uint8)
         depth_img = np.zeros((self.viewer.viewport.height,self.viewer.viewport.width,1), dtype=np.float32)
@@ -1561,7 +1925,10 @@ class MuJoCoParserClass(object):
     
     def get_T_viewer(self):
         """
-            Get viewer pose
+        Compute and return the current transformation matrix of the viewer camera.
+        
+        Returns:
+            np.array: A 4x4 transformation matrix.
         """
         cam_lookat    = self.viewer.cam.lookat
         cam_elevation = self.viewer.cam.elevation
@@ -1576,7 +1943,14 @@ class MuJoCoParserClass(object):
     
     def get_pcd_from_depth_img(self,depth_img,fovy=45):
         """
-            Get point cloud data from depth image
+        Generate point cloud data from a given depth image.
+        
+        Parameters:
+            depth_img (np.array): The depth image.
+            fovy (float): Field of view in the y-direction.
+        
+        Returns:
+            tuple: (pcd, xyz_img, xyz_img_world) representing point cloud and intermediate coordinate arrays.
         """
         # Get camera pose
         T_viewer = self.get_T_viewer()
@@ -1612,8 +1986,17 @@ class MuJoCoParserClass(object):
             restore_view = True,
         ):
         """
-            Get egocentric RGB image
-            return: (rgb_img)
+        Capture an egocentric RGB image based on the provided ego and target positions.
+        
+        Parameters:
+            p_ego (np.array): Position of the ego camera.
+            p_trgt (np.array): Target position.
+            rsz_rate (float): Resize rate for the captured image.
+            fovy (float): Field of view angle.
+            restore_view (bool): Whether to restore the original camera view after capturing.
+        
+        Returns:
+            np.array: The captured RGB image.
         """
         if restore_view:
             # Backup camera information
@@ -1664,11 +2047,24 @@ class MuJoCoParserClass(object):
             restore_view     = True,
         ):
         """
-            Get egocentric 1) RGB image, 2) Depth image, 3) Point Cloud Data
-            return: (rgb_img,depth_img,pcd,xyz_img,xyz_img_world)
-            THIS FUNCTION CAN BE PROBLEMETIC as it cannot control the twist around the line of sight
-            (see https://mujoco.readthedocs.io/en/stable/programming/visualization.html for more details
-            )
+        Capture egocentric RGB, depth images and generate point cloud data.
+        
+        Parameters:
+            p_ego (np.array): Ego camera position.
+            p_trgt (np.array): Target position.
+            rsz_rate_for_pcd (float): Resize rate for point cloud generation.
+            rsz_rate_for_img (float): Resize rate for images.
+            fovy (float): Field of view.
+            restore_view (bool): Whether to restore the original camera view.
+        
+        Returns:
+            tuple: (rgb_img, depth_img, pcd, xyz_img, xyz_img_world)
+
+        Get egocentric 1) RGB image, 2) Depth image, 3) Point Cloud Data
+        return: (rgb_img,depth_img,pcd,xyz_img,xyz_img_world)
+        THIS FUNCTION CAN BE PROBLEMETIC as it cannot control the twist around the line of sight
+        (see https://mujoco.readthedocs.io/en/stable/programming/visualization.html for more details
+        )
         """
         if restore_view:
             # Backup camera information
@@ -1726,7 +2122,14 @@ class MuJoCoParserClass(object):
     
     def grab_image(self,rsz_rate=None,interpolation=cv2.INTER_NEAREST):
         """
-            Grab the rendered iamge
+        Capture the current rendered image from the viewer.
+        
+        Parameters:
+            rsz_rate (float): Optional resize rate.
+            interpolation: Interpolation method for resizing.
+        
+        Returns:
+            np.array: The captured image.
         """
         img = np.zeros((self.viewer.viewport.height,self.viewer.viewport.width,3),dtype=np.uint8)
         mujoco.mjr_render(self.viewer.viewport,self.viewer.scn,self.viewer.ctx)
@@ -1744,9 +2147,37 @@ class MuJoCoParserClass(object):
             img = self.grab_image_backup
         return img.copy()
     
+    def get_fixed_cam_rgb(self,cam_name):
+        """
+            Get RGB of fixed cam
+        """
+        # Parse camera information
+        cam_idx  = self.cam_names.index(cam_name)
+        cam      = self.cams[cam_idx]
+        cam_fov  = self.cam_fovs[cam_idx]
+        viewport = self.cam_viewports[cam_idx]
+        # Update
+        mujoco.mjv_updateScene(
+            self.model,self.data,self.viewer.vopt,self.viewer.pert,
+            cam,mujoco.mjtCatBit.mjCAT_ALL,self.viewer.scn)
+        mujoco.mjr_render(viewport,self.viewer.scn,self.viewer.ctx)
+        # Grab RGBD
+        rgb = np.zeros((viewport.height,viewport.width,3),dtype=np.uint8)
+        depth_raw = np.zeros((viewport.height,viewport.width),dtype=np.float32)
+        mujoco.mjr_readPixels(rgb,depth_raw,viewport,self.viewer.ctx)
+        rgb,depth_raw = np.flipud(rgb),np.flipud(depth_raw)
+        return rgb
+    
     def get_fixed_cam_rgbd_pcd(self,cam_name,downscale_pcd=0.1):
         """
-            Get RGBD of fixed cam
+        Capture RGB, depth images and point cloud data from a fixed camera.
+        
+        Parameters:
+            cam_name (str): Name of the fixed camera.
+            downscale_pcd (float): Downscaling factor for the point cloud.
+        
+        Returns:
+            tuple: (rgb, depth, pcd, T_view) from the fixed camera.
         """
         # Parse camera information
         cam_idx  = self.cam_names.index(cam_name)
@@ -1790,40 +2221,97 @@ class MuJoCoParserClass(object):
         
     def get_body_names(self,prefix='',excluding='world'):
         """
-            Get body names with prefix
+        Retrieve a list of body names starting with a given prefix and excluding specified names.
+        
+        Parameters:
+            prefix (str): Prefix to match.
+            excluding (str): Substring that, if present, excludes the body.
+        
+        Returns:
+            list: Filtered body names.
         """
         body_names = [x for x in self.body_names if x is not None and x.startswith(prefix) and excluding not in x]
         return body_names
     
     def get_site_names(self,prefix='',excluding='world'):
         """
-            Get site names with prefix
+        Retrieve a list of site names starting with a given prefix and excluding specified names.
+        
+        Parameters:
+            prefix (str): Prefix to match.
+            excluding (str): Substring to exclude.
+        
+        Returns:
+            list: Filtered site names.
         """
         site_names = [x for x in self.site_names if x is not None and x.startswith(prefix) and excluding not in x]
         return site_names
     
     def get_sensor_names(self,prefix='',excluding='world'):
         """
-            Get sensor names with prefix
+        Retrieve a list of sensor names starting with a given prefix and excluding specified names.
+        
+        Parameters:
+            prefix (str): Prefix to match.
+            excluding (str): Substring to exclude.
+        
+        Returns:
+            list: Filtered sensor names.
         """
         sensor_names = [x for x in self.sensor_names if x is not None and x.startswith(prefix) and excluding not in x]
         return sensor_names
     
+    def get_mesh_names(self,including='',excluding='collision'):
+        """
+        Retrieve a list of mesh names.
+        """
+        if excluding is None:
+            mesh_names = [x for x in self.mesh_names if x is not None and including in x]    
+        else:
+            mesh_names = [x for x in self.mesh_names if x is not None and including in x and excluding not in x]
+        return mesh_names
+    
+    def get_geom_idxs_from_body_name(self,body_name):
+        """ 
+            Get geometry indices from a body name
+        """
+        body_idx = self.body_names.index(body_name)
+        geom_idxs = [idx for idx,val in enumerate(self.model.geom_bodyid) if val==body_idx] 
+        return geom_idxs
+
     def get_p_body(self,body_name):
         """
-            Get body position
+        Get the position of the specified body.
+        
+        Parameters:
+            body_name (str): Name of the body.
+        
+        Returns:
+            np.array: The position of the body.
         """
         return self.data.body(body_name).xpos.copy()
 
     def get_R_body(self,body_name):
         """
-            Get body rotation matrix
+        Get the rotation matrix of the specified body.
+        
+        Parameters:
+            body_name (str): Name of the body.
+        
+        Returns:
+            np.array: The 3x3 rotation matrix.
         """
         return self.data.body(body_name).xmat.reshape([3,3]).copy()
     
     def get_T_body(self,body_name):
         """
-            Get body pose
+        Get the full transformation matrix (pose) of the specified body.
+        
+        Parameters:
+            body_name (str): Name of the body.
+        
+        Returns:
+            np.array: The 4x4 transformation matrix.
         """
         p_body = self.get_p_body(body_name=body_name)
         R_body = self.get_R_body(body_name=body_name)
@@ -1831,7 +2319,13 @@ class MuJoCoParserClass(object):
     
     def get_pR_body(self,body_name):
         """
-            Get body position and rotation matrix
+        Get both the position and rotation matrix of the specified body.
+        
+        Parameters:
+            body_name (str): Name of the body.
+        
+        Returns:
+            tuple: (position, rotation matrix)
         """
         p = self.get_p_body(body_name)
         R = self.get_R_body(body_name)
@@ -1839,49 +2333,91 @@ class MuJoCoParserClass(object):
     
     def get_p_joint(self,joint_name):
         """
-            Get joint position
+        Get the position of the joint (via its associated body).
+        
+        Parameters:
+            joint_name (str): Name of the joint.
+        
+        Returns:
+            np.array: The joint position.
         """
         body_id = self.model.joint(joint_name).bodyid[0] # first body ID
         return self.get_p_body(self.body_names[body_id])
 
     def get_R_joint(self,joint_name):
         """
-            Get joint rotation matrix
+        Get the rotation matrix of the joint (via its associated body).
+        
+        Parameters:
+            joint_name (str): Name of the joint.
+        
+        Returns:
+            np.array: The joint rotation matrix.
         """
         body_id = self.model.joint(joint_name).bodyid[0] # first body ID
         return self.get_R_body(self.body_names[body_id])
     
     def get_pR_joint(self,joint_name):
         """
-            Get joint position and rotation matrix
+        Get both the position and rotation of the specified joint.
+        
+        Parameters:
+            joint_name (str): Name of the joint.
+        
+        Returns:
+            tuple: (position, rotation matrix)
         """
         p = self.get_p_joint(joint_name)
         R = self.get_R_joint(joint_name)
         return p,R
     
     def get_p_geom(self,geom_name):
-        """ 
-            Get geom position
+        """
+        Get the position of the specified geometry.
+        
+        Parameters:
+            geom_name (str): Name of the geometry.
+        
+        Returns:
+            np.array: The position of the geometry.
         """
         return self.data.geom(geom_name).xpos
     
     def get_R_geom(self,geom_name):
-        """ 
-            Get geom rotation
+        """
+        Get the rotation matrix of the specified geometry.
+        
+        Parameters:
+            geom_name (str): Name of the geometry.
+        
+        Returns:
+            np.array: The 3x3 rotation matrix.
         """
         return self.data.geom(geom_name).xmat.reshape((3,3))
     
     def get_pR_geom(self,geom_name):
         """
-            Get geom position and rotation matrix
+        Get both the position and rotation matrix of the specified geometry.
+        
+        Parameters:
+            geom_name (str): Name of the geometry.
+        
+        Returns:
+            tuple: (position, rotation matrix)
         """
         p = self.get_p_geom(geom_name)
         R = self.get_R_geom(geom_name)
         return p,R
     
     def get_site_name_of_sensor(self,sensor_name):
-        """ 
-            Get the site name of the given sensor name
+        """
+        Retrieve the site name associated with the given sensor.
+        
+        Parameters:
+            sensor_name (str): Name of the sensor.
+        
+        Returns:
+            str: The corresponding site name.
         """
         sensor_id = self.model.sensor(sensor_name).id # get sensor ID
         sensor_objtype = self.model.sensor_objtype[sensor_id] # get attached object type (i.e., site)
@@ -1891,7 +2427,13 @@ class MuJoCoParserClass(object):
     
     def get_p_sensor(self,sensor_name):
         """
-             Get sensor position
+        Get the position of the sensor (via its associated site).
+        
+        Parameters:
+            sensor_name (str): Name of the sensor.
+        
+        Returns:
+            np.array: Sensor position.
         """
         sensor_id = self.model.sensor(sensor_name).id # get sensor ID
         sensor_objtype = self.model.sensor_objtype[sensor_id] # get attached object type (i.e., site)
@@ -1902,19 +2444,37 @@ class MuJoCoParserClass(object):
     
     def get_p_site(self,site_name):
         """
-            Get site position
+        Get the position of the specified site.
+        
+        Parameters:
+            site_name (str): Name of the site.
+        
+        Returns:
+            np.array: The position of the site.
         """
         return self.data.site(site_name).xpos.copy()
     
     def get_R_site(self,site_name):
         """
-            Get site rotation
+        Get the rotation matrix of the specified site.
+        
+        Parameters:
+            site_name (str): Name of the site.
+        
+        Returns:
+            np.array: The 3x3 rotation matrix.
         """
         return self.data.site(site_name).xmat.reshape(3,3).copy()
     
     def get_pR_site(self,site_name):
         """
-            Get p and R of the site
+        Get both the position and rotation matrix of the specified site.
+        
+        Parameters:
+            site_name (str): Name of the site.
+        
+        Returns:
+            tuple: (position, rotation matrix)
         """
         p_site = self.get_p_site(site_name)
         R_site = self.get_R_site(site_name)
@@ -1922,7 +2482,13 @@ class MuJoCoParserClass(object):
     
     def get_R_sensor(self,sensor_name):
         """
-             Get sensor position
+        Get the rotation matrix of the specified sensor.
+        
+        Parameters:
+            sensor_name (str): Name of the sensor.
+        
+        Returns:
+            np.array: The sensor's rotation matrix.
         """
         sensor_id = self.model.sensor(sensor_name).id
         sensor_objtype = self.model.sensor_objtype[sensor_id]
@@ -1933,7 +2499,13 @@ class MuJoCoParserClass(object):
     
     def get_pR_sensor(self,sensor_name):
         """
-            Get body position and rotation matrix
+        Get both the position and rotation of the specified sensor.
+        
+        Parameters:
+            sensor_name (str): Name of the sensor.
+        
+        Returns:
+            tuple: (position, rotation matrix)
         """
         p = self.get_p_sensor(sensor_name)
         R = self.get_R_sensor(sensor_name)
@@ -1941,7 +2513,13 @@ class MuJoCoParserClass(object):
     
     def get_T_sensor(self,sensor_name):
         """
-            Get body position and rotation matrix
+        Get the transformation matrix (pose) of the specified sensor.
+        
+        Parameters:
+            sensor_name (str): Name of the sensor.
+        
+        Returns:
+            np.array: The 4x4 transformation matrix.
         """
         p = self.get_p_sensor(sensor_name)
         R = self.get_R_sensor(sensor_name)
@@ -1949,14 +2527,26 @@ class MuJoCoParserClass(object):
     
     def get_sensor_value(self,sensor_name):
         """
-            Read sensor value
+        Retrieve the current value of the specified sensor.
+        
+        Parameters:
+            sensor_name (str): Name of the sensor.
+        
+        Returns:
+            The sensor value.
         """
         data = self.data.sensor(sensor_name).data
         return data.copy()
     
     def get_sensor_values(self,sensor_names=None):
         """
-            Read multiple sensor values
+        Retrieve the sensor values for multiple sensors.
+        
+        Parameters:
+            sensor_names (list): List of sensor names. If None, returns all sensor values.
+        
+        Returns:
+            np.array or list: The sensor values.
         """
         if sensor_names is None:
             sensor_names = self.sensor_names
@@ -1965,14 +2555,26 @@ class MuJoCoParserClass(object):
         else: return data.copy()
         
     def get_p_rf_list(self,sensor_names):
-        """ 
-            Same as 'get_p_rf_obs_list'
+        """
+        (Alias) Get the list of contact positions detected by range finder sensors.
+        
+        Parameters:
+            sensor_names (list): List of sensor names.
+        
+        Returns:
+            list: Contact positions.
         """
         return self.get_p_rf_obs_list(sensor_names)
         
     def get_p_rf_obs_list(self,sensor_names):
         """
-            Get contact positions between the range finder sensor and the obstacle
+        Get the contact positions between the range finder sensors and obstacles.
+        
+        Parameters:
+            sensor_names (list): List of range finder sensor names.
+        
+        Returns:
+            list: Observed contact positions.
         """
         p_rf_obs_list = []
         for sensor_name in sensor_names: # for all sensors
@@ -1988,19 +2590,37 @@ class MuJoCoParserClass(object):
     
     def get_p_cam(self,cam_name):
         """
-            Get cam position
+        Get the position of the specified camera.
+        
+        Parameters:
+            cam_name (str): Name of the camera.
+        
+        Returns:
+            np.array: Camera position.
         """
         return self.data.cam(cam_name).xpos.copy()
 
     def get_R_cam(self,cam_name):
         """
-            Get cam rotation matrix
+        Get the rotation matrix of the specified camera.
+        
+        Parameters:
+            cam_name (str): Name of the camera.
+        
+        Returns:
+            np.array: 3x3 rotation matrix.
         """
         return self.data.cam(cam_name).xmat.reshape([3,3]).copy()
     
     def get_T_cam(self,cam_name):
         """
-            Get cam pose
+        Get the full transformation matrix (pose) of the specified camera.
+        
+        Parameters:
+            cam_name (str): Name of the camera.
+        
+        Returns:
+            np.array: 4x4 transformation matrix.
         """
         p_cam = self.get_p_cam(cam_name=cam_name)
         R_cam = self.get_R_cam(cam_name=cam_name)
@@ -2015,30 +2635,49 @@ class MuJoCoParserClass(object):
             axis_len    = 1.0,
             axis_width  = 0.005,
             axis_rgba   = None,
+            axis_alpha  = None,
             plot_sphere = False,
             sphere_r    = 0.05,
             sphere_rgba = [1,0,0,0.5],
             label       = None,
             print_xyz   = False,
         ):
-        """ 
-            Plot coordinate axes
+        """
+        Plot coordinate axes (and optionally a sphere and label) at the given pose.
+        
+        Parameters:
+            p (np.array): Position.
+            R (np.array): Rotation matrix. If T is provided, it overrides p and R.
+            T (np.array): 4x4 transformation matrix.
+            plot_axis (bool): Whether to plot the coordinate axes.
+            axis_len (float): Length of each axis.
+            axis_width (float): Thickness of the axes.
+            axis_rgba (list): RGBA colors for the axes.
+            plot_sphere (bool): Whether to plot a sphere marker at p.
+            sphere_r (float): Radius of the sphere.
+            sphere_rgba (list): RGBA color of the sphere.
+            label (str): Optional text label.
+            print_xyz (bool): Whether to print coordinate info.
+        
+        Returns:
+            None
         """
         if T is not None: # if T is not None, it overrides p and R
             p = t2p(T)
             R = t2r(T)
             
         if plot_axis:
+            if axis_alpha is None: axis_alpha = 0.9
             if axis_rgba is None:
-                rgba_x = [1.0,0.0,0.0,0.9]
-                rgba_y = [0.0,1.0,0.0,0.9]
-                rgba_z = [0.0,0.0,1.0,0.9]
+                rgba_x = [1.0,0.0,0.0,axis_alpha]
+                rgba_y = [0.0,1.0,0.0,axis_alpha]
+                rgba_z = [0.0,0.0,1.0,axis_alpha]
             else:
                 rgba_x = axis_rgba
                 rgba_y = axis_rgba
                 rgba_z = axis_rgba
             R_x = R@rpy2r(np.deg2rad([0,0,90]))@rpy2r(np.pi/2*np.array([1,0,0]))
-            p_x = p + R_x[:,2]*axis_len/2
+            p_x = p+R_x[:,2]*axis_len/2
             if print_xyz: axis_label = 'X-axis'
             else: axis_label = ''
             self.viewer.add_marker(
@@ -2093,8 +2732,18 @@ class MuJoCoParserClass(object):
 
     def plot_sphere(self,p,r,rgba=[1,1,1,1],label=''):
         """
-            Plot sphere
+        Plot a sphere marker at the specified position.
+        
+        Parameters:
+            p (np.array): Position (2D or 3D).
+            r (float): Radius of the sphere.
+            rgba (list): RGBA color.
+            label (str): Optional label.
+        
+        Returns:
+            None
         """
+        p = np.asarray(p)
         if len(p) == 2: # only x and y are given (pad z=0)
             self.viewer.add_marker(
                 pos   = np.append(p,[0]),
@@ -2113,61 +2762,137 @@ class MuJoCoParserClass(object):
             )
         
     def plot_spheres(self,p_list,r,rgba=[1,1,1,1],label=''):
-        """ 
-            Plot spheres
+        """
+        Plot multiple spheres at the positions given in p_list.
+        
+        Parameters:
+            p_list (list of np.array): List of positions.
+            r (float): Radius for each sphere.
+            rgba (list): RGBA color.
+            label (str): Optional label for each sphere.
+        
+        Returns:
+            None
         """
         for p in p_list:
             self.plot_sphere(p=p,r=r,rgba=rgba,label=label)
                 
     def plot_box(
             self,
-            p    = np.array([0,0,0]),
-            R    = np.eye(3),
-            xlen = 1.0,
-            ylen = 1.0,
-            zlen = 1.0,
-            rgba = [0.5,0.5,0.5,0.5]
+            p     = np.array([0,0,0]),
+            R     = np.eye(3),
+            xlen  = 1.0,
+            ylen  = 1.0,
+            zlen  = 1.0,
+            rgba  = [0.5,0.5,0.5,0.5],
+            label = '',
         ):
+        """
+        Plot a box marker at the specified pose.
+        
+        Parameters:
+            p (np.array): Position.
+            R (np.array): Orientation matrix.
+            xlen, ylen, zlen (float): Dimensions of the box.
+            rgba (list): RGBA color.
+        
+        Returns:
+            None
+        """
+        p = np.asarray(p)
         self.viewer.add_marker(
             pos   = p,
             mat   = R,
             type  = mujoco.mjtGeom.mjGEOM_BOX,
-            size  = [xlen,ylen,zlen],
+            size  = [xlen/2,ylen/2,zlen/2],
             rgba  = rgba,
-            label = ''
+            label = label,
         )
     
-    def plot_capsule(self,p=np.array([0,0,0]),R=np.eye(3),r=1.0,h=1.0,rgba=[0.5,0.5,0.5,0.5]):
+    def plot_capsule(self,p=np.array([0,0,0]),R=np.eye(3),r=1.0,h=1.0,rgba=[0.5,0.5,0.5,0.5],label=''):
+        """
+        Plot a capsule marker.
+        
+        Parameters:
+            p (np.array): Position.
+            R (np.array): Orientation.
+            r (float): Radius.
+            h (float): Half-length of the capsule.
+            rgba (list): RGBA color.
+        
+        Returns:
+            None
+        """
+        p = np.asarray(p)
         self.viewer.add_marker(
             pos   = p,
             mat   = R,
             type  = mujoco.mjtGeom.mjGEOM_CAPSULE,
             size  = [r,r,h],
             rgba  = rgba,
-            label = ''
+            label = label,
         )
         
-    def plot_cylinder(self,p=np.array([0,0,0]),R=np.eye(3),r=1.0,h=1.0,rgba=[0.5,0.5,0.5,0.5]):
+    def plot_cylinder(self,p=np.array([0,0,0]),R=np.eye(3),r=1.0,h=1.0,rgba=[0.5,0.5,0.5,0.5],label=''):
+        """
+        Plot a cylinder marker.
+        
+        Parameters:
+            p (np.array): Position.
+            R (np.array): Orientation.
+            r (float): Radius.
+            h (float): Half-height.
+            rgba (list): RGBA color.
+        
+        Returns:
+            None
+        """
+        p = np.asarray(p)
         self.viewer.add_marker(
             pos   = p,
             mat   = R,
             type  = mujoco.mjtGeom.mjGEOM_CYLINDER,
             size  = [r,r,h],
             rgba  = rgba,
-            label = ''
+            label = label,
         )
     
-    def plot_ellipsoid(self,p=np.array([0,0,0]),R=np.eye(3),rx=1.0,ry=1.0,rz=1.0,rgba=[0.5,0.5,0.5,0.5]):
+    def plot_ellipsoid(self,p=np.array([0,0,0]),R=np.eye(3),rx=1.0,ry=1.0,rz=1.0,rgba=[0.5,0.5,0.5,0.5],label=''):
+        """
+        Plot an ellipsoid marker.
+        
+        Parameters:
+            p (np.array): Position.
+            R (np.array): Orientation.
+            rx, ry, rz (float): Radii along x, y, z axes.
+            rgba (list): RGBA color.
+        
+        Returns:
+            None
+        """
         self.viewer.add_marker(
             pos   = p,
             mat   = R,
             type  = mujoco.mjtGeom.mjGEOM_ELLIPSOID,
             size  = [rx,ry,rz],
             rgba  = rgba,
-            label = ''
+            label = label,
         )
         
     def plot_arrow(self,p=np.array([0,0,0]),R=np.eye(3),r=1.0,h=1.0,rgba=[0.5,0.5,0.5,0.5]):
+        """
+        Plot an arrow marker at the given pose.
+        
+        Parameters:
+            p (np.array): Position.
+            R (np.array): Orientation.
+            r (float): Radius of the arrow shaft.
+            h (float): Length of the arrow.
+            rgba (list): RGBA color.
+        
+        Returns:
+            None
+        """
         self.viewer.add_marker(
             pos   = p,
             mat   = R,
@@ -2178,6 +2903,18 @@ class MuJoCoParserClass(object):
         )
         
     def plot_line(self,p=np.array([0,0,0]),R=np.eye(3),h=1.0,rgba=[0.5,0.5,0.5,0.5]):
+        """
+        Plot a line marker.
+        
+        Parameters:
+            p (np.array): Starting position.
+            R (np.array): Orientation (direction).
+            h (float): Length of the line.
+            rgba (list): RGBA color.
+        
+        Returns:
+            None
+        """
         self.viewer.add_marker(
             pos   = p,
             mat   = R,
@@ -2187,7 +2924,22 @@ class MuJoCoParserClass(object):
             label = ''
         )
         
-    def plot_arrow_fr2to(self,p_fr,p_to,r=1.0,rgba=[0.5,0.5,0.5,0.5]):
+    def plot_arrow_fr2to(self,p_fr,p_to,r=1.0,rgba=[0.5,0.5,0.5,0.5],label=''):
+        """
+        Plot an arrow from point p_fr to point p_to.
+        
+        Parameters:
+            p_fr (np.array): Starting point.
+            p_to (np.array): Ending point.
+            r (float): Arrow shaft radius.
+            rgba (list): RGBA color.
+        
+        Returns:
+            None
+        """
+        # Ensure p_fr and p_to are numpy arrays
+        p_fr = np.asarray(p_fr)
+        p_to = np.asarray(p_to)
         R_fr2to = get_rotation_matrix_from_two_points(p_fr=p_fr,p_to=p_to)
         self.viewer.add_marker(
             pos   = p_fr,
@@ -2195,10 +2947,24 @@ class MuJoCoParserClass(object):
             type  = mujoco.mjtGeom.mjGEOM_ARROW,
             size  = [r,r,np.linalg.norm(p_to-p_fr)*2],
             rgba  = rgba,
-            label = ''
+            label = label,
         )
 
-    def plot_line_fr2to(self,p_fr,p_to,rgba=[0.5,0.5,0.5,0.5]):
+    def plot_line_fr2to(self,p_fr,p_to,rgba=[0.5,0.5,0.5,0.5],label=''):
+        """
+        Plot a line connecting two points.
+        
+        Parameters:
+            p_fr (np.array): Starting point.
+            p_to (np.array): Ending point.
+            rgba (list): RGBA color.
+        
+        Returns:
+            None
+        """
+        # Ensure p_fr and p_to are numpy arrays
+        p_fr = np.asarray(p_fr)
+        p_to = np.asarray(p_to)
         R_fr2to = get_rotation_matrix_from_two_points(p_fr=p_fr,p_to=p_to)
         self.viewer.add_marker(
             pos   = p_fr,
@@ -2206,10 +2972,25 @@ class MuJoCoParserClass(object):
             type  = mujoco.mjtGeom.mjGEOM_LINE,
             size  = np.linalg.norm(p_to-p_fr),
             rgba  = rgba,
-            label = ''
+            label = label,
         )
     
-    def plot_cylinder_fr2to(self,p_fr,p_to,r=0.01,rgba=[0.5,0.5,0.5,0.5]):
+    def plot_cylinder_fr2to(self,p_fr,p_to,r=0.01,rgba=[0.5,0.5,0.5,0.5],label=''):
+        """
+        Plot a cylinder marker between two points.
+        
+        Parameters:
+            p_fr (np.array): Starting point.
+            p_to (np.array): Ending point.
+            r (float): Cylinder radius.
+            rgba (list): RGBA color.
+        
+        Returns:
+            None
+        """
+        # Ensure p_fr and p_to are numpy arrays
+        p_fr = np.asarray(p_fr)
+        p_to = np.asarray(p_to)
         R_fr2to = get_rotation_matrix_from_two_points(p_fr=p_fr,p_to=p_to)
         self.viewer.add_marker(
             pos   = (p_fr+p_to)/2,
@@ -2217,21 +2998,33 @@ class MuJoCoParserClass(object):
             type  = mujoco.mjtGeom.mjGEOM_CYLINDER,
             size  = [r,r,np.linalg.norm(p_to-p_fr)/2],
             rgba  = rgba,
-            label = ''
+            label = label,
         )
         
     def plot_traj(
             self,
             traj, # [L x 3] for (x,y,z) sequence or [L x 2] for (x,y) sequence
             rgba          = [1,0,0,1],
-            plot_line     = True,
-            plot_cylinder = False,
+            plot_line     = False,
+            plot_cylinder = True,
             plot_sphere   = False,
             cylinder_r    = 0.01,
             sphere_r      = 0.025,
         ):
-        """ 
-            Plot trajectory
+        """
+        Plot a trajectory given by a sequence of points.
+        
+        Parameters:
+            traj (np.array): Array of shape [L x 3] or [L x 2] representing the trajectory.
+            rgba (list): RGBA color for plotting.
+            plot_line (bool): Whether to plot lines connecting points.
+            plot_cylinder (bool): Whether to plot cylinders between points.
+            plot_sphere (bool): Whether to plot spheres at the points.
+            cylinder_r (float): Radius for the cylinder.
+            sphere_r (float): Radius for the sphere.
+        
+        Returns:
+            None
         """
         L = traj.shape[0]
         colors = None
@@ -2250,9 +3043,17 @@ class MuJoCoParserClass(object):
                 self.plot_sphere(p=p,r=sphere_r,rgba=rgba)
         
     def plot_text(self,p,label=''):
-        """ 
-            Plot text
         """
+        Plot a text label at the specified position.
+        
+        Parameters:
+            p (np.array): Position for the text.
+            label (str): Text to display.
+        
+        Returns:
+            None
+        """
+        p = np.asarray(p)
         self.viewer.add_marker(
             pos   = p,
             size  = [0.0001,0.0001,0.0001],
@@ -2265,8 +3066,14 @@ class MuJoCoParserClass(object):
             self,
             loc = 'bottom left',
         ):
-        """ 
-            Plot time using overlay
+        """
+        Overlay the current simulation tick, simulation time, and wall-clock time on the viewer.
+        
+        Parameters:
+            loc (str): Location of the overlay.
+        
+        Returns:
+            None
         """
         self.viewer.add_overlay(text1='tick',text2='%d'%(self.tick),loc=loc)
         self.viewer.add_overlay(text1='sim time',text2='%.2fsec'%(self.get_sim_time()),loc=loc)
@@ -2282,7 +3089,18 @@ class MuJoCoParserClass(object):
             label       = None,
         ):
         """
-            Plot coordinate axes on a sensor
+        Plot the coordinate frame of a sensor.
+        
+        Parameters:
+            sensor_name (str): Name of the sensor.
+            plot_axis (bool): Whether to plot the axes.
+            axis_len (float): Length of each axis.
+            axis_width (float): Width of the axes.
+            axis_rgba (list): RGBA color for the axes.
+            label (str): Optional label.
+        
+        Returns:
+            None
         """
         p_sensor,R_sensor = self.get_pR_sensor(sensor_name=sensor_name)
         self.plot_T(
@@ -2306,7 +3124,18 @@ class MuJoCoParserClass(object):
             plot_name   = False,
         ):
         """
-            Plot coordinate axes on a sensor
+        Plot the coordinate frames of multiple sensors.
+        
+        Parameters:
+            sensor_names (list): List of sensor names.
+            plot_axis (bool): Whether to plot axes.
+            axis_len (float): Axis length.
+            axis_width (float): Axis width.
+            axis_rgba (list): RGBA color.
+            plot_name (bool): Whether to display sensor names.
+        
+        Returns:
+            None
         """
         for sensor_idx,sensor_name in enumerate(sensor_names):
             if plot_name:
@@ -2326,8 +3155,14 @@ class MuJoCoParserClass(object):
             self,
             loc = 'bottom right',
         ):
-        """ 
-            Plot sensor values with overlay
+        """
+        Overlay sensor values as text on the viewer.
+        
+        Parameters:
+            loc (str): Location of the overlay.
+        
+        Returns:
+            None
         """
         sensor_values = self.get_sensor_values() # print sensor values
         for sensor_idx,sensor_name in enumerate(self.sensor_names):
@@ -2350,7 +3185,21 @@ class MuJoCoParserClass(object):
             label       = None,
         ):
         """
-            Plot coordinate axes on a body
+        Plot the coordinate frame of a specified body.
+        
+        Parameters:
+            body_name (str): Name of the body.
+            plot_axis (bool): Whether to plot the axes.
+            axis_len (float): Length of the axes.
+            axis_width (float): Width of the axes.
+            axis_rgba (list): RGBA color.
+            plot_sphere (bool): Whether to plot a sphere marker.
+            sphere_r (float): Sphere radius.
+            sphere_rgba (list): Sphere color.
+            label (str): Optional label.
+        
+        Returns:
+            None
         """
         p,R = self.get_pR_body(body_name=body_name)
         self.plot_T(
@@ -2365,6 +3214,44 @@ class MuJoCoParserClass(object):
             sphere_rgba = sphere_rgba,
             label       = label,
         )
+
+    def plot_body_sphere(
+            self,
+            body_name,
+            r     = 0.05,
+            rgba  = (1,0,0,0.5),
+            label = None,
+        ):
+        """
+        Plot the coordinate frame of a specified body.
+        
+        Parameters:
+            body_name (str): Name of the body.
+            plot_axis (bool): Whether to plot the axes.
+            axis_len (float): Length of the axes.
+            axis_width (float): Width of the axes.
+            axis_rgba (list): RGBA color.
+            plot_sphere (bool): Whether to plot a sphere marker.
+            sphere_r (float): Sphere radius.
+            sphere_rgba (list): Sphere color.
+            label (str): Optional label.
+        
+        Returns:
+            None
+        """
+        p,R = self.get_pR_body(body_name=body_name)
+        self.plot_T(
+            p,
+            R,
+            plot_axis   = False,
+            axis_len    = None,
+            axis_width  = None,
+            axis_rgba   = None,
+            plot_sphere = True,
+            sphere_r    = r,
+            sphere_rgba = rgba,
+            label       = label,
+        )
         
     def plot_joint_T(
             self,
@@ -2376,7 +3263,18 @@ class MuJoCoParserClass(object):
             label      = None,
         ):
         """
-            Plot coordinate axes on a joint
+        Plot the coordinate frame of a specified joint.
+        
+        Parameters:
+            joint_name (str): Name of the joint.
+            plot_axis (bool): Whether to plot the axes.
+            axis_len (float): Length of the axes.
+            axis_width (float): Width of the axes.
+            axis_rgba (list): RGBA color.
+            label (str): Optional label.
+        
+        Returns:
+            None
         """
         p,R = self.get_pR_joint(joint_name=joint_name)
         self.plot_T(
@@ -2400,8 +3298,21 @@ class MuJoCoParserClass(object):
             rate                  = 1.0,
             plot_name             = False,
         ):
-        """ 
-            Plot bodies T
+        """
+        Plot the coordinate frames of multiple bodies.
+        
+        Parameters:
+            body_names (list): List of body names to plot (if None, plot all bodies).
+            body_names_to_exclude (list): Body names to exclude.
+            body_names_to_exclude_including (list): Bodies containing these substrings will be excluded.
+            plot_axis (bool): Whether to plot axes.
+            axis_len (float): Axis length.
+            axis_width (float): Axis width.
+            rate (float): Scaling factor.
+            plot_name (bool): Whether to display body names.
+        
+        Returns:
+            None
         """
         def should_exclude(x, exclude_list):
             for exclude in exclude_list:
@@ -2436,12 +3347,26 @@ class MuJoCoParserClass(object):
             self,
             parent_body_names_to_exclude = ['world'],
             body_names_to_exclude        = [],
+            pbne                         = None,
+            bne                          = None,
             r                            = 0.005,
             rgba                         = (0.0,0.0,0.0,0.5),
         ):
-        """ 
-            Plot links between bodies
         """
+        Plot visual links (e.g., cylinders) connecting parent and child bodies.
+        
+        Parameters:
+            parent_body_names_to_exclude (list): Parent body names to exclude.
+            body_names_to_exclude (list): Child body names to exclude.
+            pbne, bne: Alternative exclusion lists.
+            r (float): Radius of the linking cylinder.
+            rgba (tuple): Color of the link.
+        
+        Returns:
+            None
+        """
+        if pbne is not None: parent_body_names_to_exclude = pbne
+        if bne is not None: body_names_to_exclude = bne
         for body_idx,body_name in enumerate(self.body_names):
             parent_body_name = self.parent_body_names[body_idx]
             if parent_body_name in parent_body_names_to_exclude: continue
@@ -2464,8 +3389,19 @@ class MuJoCoParserClass(object):
             rate        = 1.0,
             print_name  = False,
         ):
-        """ 
-            Plot revolute joint axis 
+        """
+        Plot the axis of revolute joints.
+        
+        Parameters:
+            axis_len (float): Length of the joint axis.
+            axis_r (float): Radius of the axis marker.
+            joint_names (list): List of joint names to plot.
+            alpha (float): Transparency factor.
+            rate (float): Scaling factor.
+            print_name (bool): Whether to print joint names.
+        
+        Returns:
+            None
         """
         rev_joint_idxs  = self.rev_joint_idxs
         rev_joint_names = self.rev_joint_names
@@ -2482,7 +3418,7 @@ class MuJoCoParserClass(object):
             axis_joint      = self.model.jnt_axis[rev_joint_idx]
             p_joint,R_joint = self.get_pR_joint(joint_name=rev_joint_name)
             axis_world      = R_joint@axis_joint
-            axis_rgba       = np.append(np.eye(3)[:,np.argmax(axis_joint)],alpha)
+            axis_rgba       = np.append(np.eye(3)[:,np.argmax(np.abs(axis_joint))],alpha)
             self.plot_arrow_fr2to(
                 p_fr = p_joint,
                 p_to = p_joint+rate*axis_len*axis_world,
@@ -2493,8 +3429,11 @@ class MuJoCoParserClass(object):
                 self.plot_text(p=p_joint,label=rev_joint_name)
                 
     def get_contact_body_names(self):
-        """ 
-            Get contacting body names
+        """
+        Retrieve the names of the bodies involved in each contact.
+        
+        Returns:
+            list: List of pairs [body1, body2] for each contact.
         """
         contact_body_names = []
         for c_idx in range(self.data.ncon):
@@ -2506,7 +3445,14 @@ class MuJoCoParserClass(object):
     
     def get_contact_info(self,must_include_prefix=None,must_exclude_prefix=None):
         """
-            Get contact information
+        Retrieve detailed contact information including positions, forces, and involved geometries and bodies.
+        
+        Parameters:
+            must_include_prefix (str): Only include contacts where one of the geometry names starts with this prefix.
+            must_exclude_prefix (str): Exclude contacts where geometry names start with this prefix.
+        
+        Returns:
+            tuple: (p_contacts, f_contacts, geom1s, geom2s, body1s, body2s)
         """
         p_contacts = []
         f_contacts = []
@@ -2557,8 +3503,14 @@ class MuJoCoParserClass(object):
         return p_contacts,f_contacts,geom1s,geom2s,body1s,body2s
 
     def print_contact_info(self,must_include_prefix=None):
-        """ 
-            Print contact information
+        """
+        Print contact information for contacts matching specified criteria.
+        
+        Parameters:
+            must_include_prefix (str): Filter to only include contacts with geometries starting with this prefix.
+        
+        Returns:
+            None
         """
         # Get contact information
         p_contacts,f_contacts,geom1s,geom2s,body1s,body2s = self.get_contact_info(
@@ -2568,7 +3520,18 @@ class MuJoCoParserClass(object):
 
     def plot_arrow_contact(self,p,uv,r_arrow=0.03,h_arrow=0.3,rgba=[1,0,0,1],label=''):
         """
-            Plot arrow
+        Plot an arrow representing a contact force at a given contact point.
+        
+        Parameters:
+            p (np.array): Contact position.
+            uv (np.array): Unit vector indicating force direction.
+            r_arrow (float): Radius of the arrow.
+            h_arrow (float): Length of the arrow.
+            rgba (list): RGBA color.
+            label (str): Optional label.
+        
+        Returns:
+            None
         """
         p_a = np.copy(np.array([0,0,1]))
         p_b = np.copy(uv)
@@ -2601,8 +3564,19 @@ class MuJoCoParserClass(object):
             axis_rgba        = None,
             plot_joint_names = False,
         ):
-        """ 
-            Plot joint names
+        """
+        Plot the coordinate frames for multiple joints.
+        
+        Parameters:
+            joint_names (list): List of joint names. If None, all joints are plotted.
+            plot_axis (bool): Whether to display axes.
+            axis_len (float): Length of axes.
+            axis_width (float): Width of axes.
+            axis_rgba (list): RGBA color.
+            plot_joint_names (bool): Whether to print joint names.
+        
+        Returns:
+            None
         """
         if joint_names is None:
             joint_names = self.joint_names
@@ -2636,7 +3610,23 @@ class MuJoCoParserClass(object):
             verbose             = False
         ):
         """
-            Plot contact information
+        Visualize contact forces and optionally display contact labels.
+        
+        Parameters:
+            must_include_prefix (str): Filter for contacts.
+            plot_arrow (bool): Whether to plot arrows for contact forces.
+            r_arrow (float): Arrow radius.
+            h_arrow (float): Arrow length.
+            rate (float): Scaling factor.
+            plot_sphere (bool): Whether to plot a sphere at contact points.
+            r_sphere (float): Sphere radius.
+            rgba_contact (list): RGBA color for contact markers.
+            print_contact_body (bool): Whether to display contacting body names.
+            print_contact_geom (bool): Whether to display contacting geometry names.
+            verbose (bool): If True, also print contact info to console.
+        
+        Returns:
+            None
         """
         # Get contact information
         p_contacts,f_contacts,geom1s,geom2s,body1s,body2s = self.get_contact_info(
@@ -2687,8 +3677,20 @@ class MuJoCoParserClass(object):
             plot_sphere   = False,
             plot_arrow    = True,
         ):
-        """ 
-            Plot 'xy' and 'heading'
+        """
+        Plot a 2D point along with an arrow indicating its heading.
+        
+        Parameters:
+            xy (np.array): (x, y) position.
+            heading (float): Heading angle in radians.
+            r (float): Radius for the point marker.
+            arrow_len (float): Length of the heading arrow.
+            rgba (tuple): RGBA color.
+            plot_sphere (bool): Whether to plot a sphere at the point.
+            plot_arrow (bool): Whether to draw the heading arrow.
+        
+        Returns:
+            None
         """
         dir_vec = np.array([np.cos(heading),np.sin(heading)])
         if plot_sphere:
@@ -2714,8 +3716,23 @@ class MuJoCoParserClass(object):
             plot_arrow    = True,
             plot_cylinder = False,
         ):
-        """ 
-            Plot 'xy_traj' and 'heading_traj'
+        """
+        Plot a trajectory in the XY plane with associated heading arrows.
+        
+        Parameters:
+            xy_traj (np.array): Sequence of (x, y) positions.
+            heading_traj (np.array): Sequence of heading angles.
+            r (float): Marker radius.
+            arrow_len (float): Length of the heading arrow.
+            rgba (list): RGBA color; if None, use a colormap.
+            cmap_name (str): Name of the colormap to use.
+            alpha (float): Transparency for the colormap.
+            plot_sphere (bool): Whether to plot spheres at points.
+            plot_arrow (bool): Whether to draw arrows for headings.
+            plot_cylinder (bool): Whether to connect points with cylinders.
+        
+        Returns:
+            None
         """
         L = len(xy_traj)
         colors = get_colors(n_color=L,cmap_name=cmap_name,alpha=alpha)
@@ -2744,52 +3761,80 @@ class MuJoCoParserClass(object):
                     )
             
     def get_idxs_fwd(self,joint_names):
-        """ 
-            Get indices for using env.forward()
-            Example)
+        """
+        Get the indices of joints used for forward kinematics based on joint names.
+        
+        Parameters:
+            joint_names (list): List of joint names.
+        
+        Returns:
+            list: Indices corresponding to the joints.
+
+        Example:
             env.forward(q=q,joint_idxs=idxs_fwd) # <= HERE
         """
         return [self.model.joint(jname).qposadr[0] for jname in joint_names]
     
     def get_idxs_jac(self,joint_names):
         """ 
-            Get indices for solving inverse kinematics
-            Example)
-            J,ik_err = env.get_ik_ingredients(...)
-            dq = env.damped_ls(J,ik_err,stepsize=1,eps=1e-2,th=np.radians(1.0))
-            q = q + dq[idxs_jac] # <= HERE
+        Get the indices of joints for Jacobian calculation based on joint names.
+        
+        Parameters:
+            joint_names (list): List of joint names.
+        
+        Returns:
+            list: Indices corresponding to the joints.
         """
         return [self.model.joint(jname).dofadr[0] for jname in joint_names]
     
     def get_idxs_step(self,joint_names):
-        """ 
-            Get indices for using env.step()
-            Example)
-            env.step(ctrl=q,ctrl_idxs=idxs_step) # <= HERE
+        """
+        Get the indices used for applying control during simulation steps based on joint names.
+        
+        Parameters:
+            joint_names (list): List of joint names.
+        
+        Returns:
+            list: Control indices.
         """
         return [self.ctrl_qpos_names.index(jname) for jname in joint_names]
     
     def get_qpos(self):
-        """ 
-            Get joint positions
+        """
+        Retrieve the current joint positions.
+        
+        Returns:
+            np.array: The joint positions.
         """
         return self.data.qpos.copy() # [n_qpos]
     
     def get_qvel(self):
-        """ 
-            Get joint velocities
+        """
+        Retrieve the current joint velocities.
+        
+        Returns:
+            np.array: The joint velocities.
         """
         return self.data.qvel.copy() # [n_qvel]
     
     def get_qacc(self):
-        """ 
-            Get joint accelerations
+        """
+        Retrieve the current joint accelerations.
+        
+        Returns:
+            np.array: The joint accelerations.
         """
         return self.data.qacc.copy() # [n_qacc]
 
     def get_qpos_joint(self,joint_name):
         """
-            Get joint position
+        Get the position for a specific joint.
+        
+        Parameters:
+            joint_name (str): Name of the joint.
+        
+        Returns:
+            np.array: The joint position.
         """
         addr = self.model.joint(joint_name).qposadr[0]
         L = len(self.model.joint(joint_name).qpos0)
@@ -2798,7 +3843,13 @@ class MuJoCoParserClass(object):
     
     def get_qvel_joint(self,joint_name):
         """
-            Get joint velocity
+        Get the velocity for a specific joint.
+        
+        Parameters:
+            joint_name (str): Name of the joint.
+        
+        Returns:
+            np.array: The joint velocity.
         """
         addr = self.model.joint(joint_name).dofadr[0]
         L = len(self.model.joint(joint_name).qpos0)
@@ -2808,33 +3859,126 @@ class MuJoCoParserClass(object):
     
     def get_qpos_joints(self,joint_names):
         """
-            Get multiple joint positions from 'joint_names'
+        Get the positions for multiple joints.
+        
+        Parameters:
+            joint_names (list): List of joint names.
+        
+        Returns:
+            np.array: Joint positions.
         """
         return np.array([self.get_qpos_joint(joint_name) for joint_name in joint_names]).squeeze()
     
     def get_qvel_joints(self,joint_names):
         """
-            Get multiple joint velocities from 'joint_names'
+        Get the velocity for a specific joint.
+        
+        Parameters:
+            joint_name (str): Name of the joint.
+        
+        Returns:
+            np.array: The joint velocity.
         """
         return np.array([self.get_qvel_joint(joint_name) for joint_name in joint_names]).squeeze()
     
+    def get_q_couple(
+        self,
+        q_raw,
+        coupled_joint_idxs_list    = None,
+        coupled_joint_names_list   = None,
+        coupled_joint_weights_list = None,
+        ):
+        """
+        Compute coupled joint positions based on raw joint positions and coupling definitions.
+        
+        Parameters:
+            q_raw (np.array): Raw joint position vector.
+            coupled_joint_idxs_list (list): List of lists of joint indices for each coupling group.
+            coupled_joint_names_list (list): Alternative specification using joint names.
+            coupled_joint_weights_list (list): List of weight lists for each coupling group.
+        
+        Returns:
+            np.array: Modified joint position vector with coupling applied.
+        
+        Usage?
+            Coupled joint positions
+            Example:
+            # Apply joint positions coupling
+            coupled_joint_idxs_list = [
+                [22,23],[24,25,26],[27,28,29],[30,31,32],[33,34,35],
+                [45,46],[47,48,49],[50,51,52],[53,54,55],[56,57,58]]
+            coupled_joint_weights_list = [
+                [1,1],[1,3,2],[1,3,2],[1,3,2],[1,3,2],
+                [1,1],[1,3,2],[1,3,2],[1,3,2],[1,3,2]]
+            q_couple = env.get_q_couple(
+                q_raw=env.data.qpos,
+                coupled_joint_idxs_list=coupled_joint_idxs_list,
+                coupled_joint_weights_list=coupled_joint_weights_list)
+        """
+        q_couple = q_raw.copy()
+        if coupled_joint_idxs_list is not None:
+            for i in range(len(coupled_joint_idxs_list)): # for each couple
+                coupled_joint_idxs    = coupled_joint_idxs_list[i]
+                coupled_joint_weights = coupled_joint_weights_list[i]
+                joint_sum = 0
+                for j in range(len(coupled_joint_idxs)):
+                    joint_sum += q_raw[coupled_joint_idxs[j]]
+                joint_sum /= np.sum(coupled_joint_weights)
+                for k in range(len(coupled_joint_idxs)):
+                    q_couple[coupled_joint_idxs[k]] = joint_sum*coupled_joint_weights[k] # distribute coupled joint positions
+        if coupled_joint_names_list is not None:
+            for i in range(len(coupled_joint_names_list)): # for each couple
+                coupled_joint_names   = coupled_joint_names_list[i]
+                coupled_joint_idxs    = get_idxs(self.joint_names,coupled_joint_names)
+                coupled_joint_weights = coupled_joint_weights_list[i]
+                joint_sum = 0
+                for j in range(len(coupled_joint_idxs)):
+                    joint_sum += q_raw[coupled_joint_idxs[j]]
+                joint_sum /= np.sum(coupled_joint_weights)
+                for k in range(len(coupled_joint_idxs)):
+                    q_couple[coupled_joint_idxs[k]] = joint_sum*coupled_joint_weights[k] # distribute coupled joint positions
+        return q_couple
+    
     def get_ctrl(self,ctrl_names):
-        """ 
-            Get control values
+        """
+        Retrieve control values for the specified actuators.
+        
+        Parameters:
+            ctrl_names (list): List of control names.
+        
+        Returns:
+            np.array: Control values.
         """
         idxs = get_idxs(self.ctrl_names,ctrl_names)
         return np.array([self.data.ctrl[idx] for idx in idxs]).squeeze()
     
+        
     def set_qpos_joints(self,joint_names,qpos):
-        """ 
-            Set joint positions
+        """
+        Set the joint positions for the specified joints and update forward kinematics.
+        
+        Parameters:
+            joint_names (list): Names of the joints.
+            qpos (np.array): Joint positions.
+        
+        Returns:
+            None
         """
         joint_idxs = self.get_idxs_fwd(joint_names)
         self.data.qpos[joint_idxs] = qpos
         mujoco.mj_forward(self.model,self.data)
     
     def set_ctrl(self,ctrl_names,ctrl,nstep=1):
-        """ 
+        """
+        Set control inputs for the specified actuators and perform simulation steps.
+        
+        Parameters:
+            ctrl_names (list): Names of the controls.
+            ctrl (np.array): Control values.
+            nstep (int): Number of simulation steps to execute.
+        
+        Returns:
+            None
         """
         ctrl_idxs = get_idxs(self.ctrl_names,ctrl_names)
         self.data.ctrl[ctrl_idxs] = ctrl
@@ -2842,19 +3986,28 @@ class MuJoCoParserClass(object):
         
     def viewer_pause(self):
         """
-            Viewer pause
+        Pause the viewer rendering loop.
+        
+        Returns:
+            None
         """
         self.viewer._paused = True
         
     def viewer_resume(self):
         """
-            Viewer resume
+        Resume the viewer rendering loop.
+        
+        Returns:
+            None
         """
         self.viewer._paused = False
     
     def get_viewer_mouse_xy(self):
         """
-            Get viewer mouse (x,y)
+        Get the current mouse (x, y) coordinates from the viewer.
+        
+        Returns:
+            np.array: Mouse coordinates.
         """
         viewer_mouse_xy = np.array([self.viewer._last_mouse_x,self.viewer._last_mouse_y])
         return viewer_mouse_xy
@@ -2862,6 +4015,7 @@ class MuJoCoParserClass(object):
     def get_xyz_left_double_click(self,verbose=False,fovy=45):
         """ 
             Get xyz location of double click
+            :return self.xyz_left_double_click,flag_click:
         """
         flag_click = False
         if self.viewer._left_double_click_pressed: # left double click
@@ -2871,13 +4025,16 @@ class MuJoCoParserClass(object):
             self.viewer._left_double_click_pressed = False
             flag_click = True
             if verbose:
-                print ("xyz clicked:(%.3f,%.3f,%.3f)"%
+                print ("left double click:(%.3f,%.3f,%.3f)"%
                        (self.xyz_left_double_click[0],self.xyz_left_double_click[1],self.xyz_left_double_click[2]))
         return self.xyz_left_double_click,flag_click
     
     def is_left_double_clicked(self):
-        """ 
-            Check left double click
+        """
+        Check if a left double-click event has occurred.
+        
+        Returns:
+            bool: True if detected, False otherwise.
         """
         if self.viewer._left_double_click_pressed: # left double click
             viewer_mouse_xy = self.get_viewer_mouse_xy()
@@ -2889,8 +4046,15 @@ class MuJoCoParserClass(object):
             return False
     
     def get_xyz_right_double_click(self,verbose=False,fovy=45):
-        """ 
-            Get xyz location of double click
+        """
+        Retrieve the 3D world coordinates corresponding to a right double-click event.
+        
+        Parameters:
+            verbose (bool): If True, print the clicked coordinates.
+            fovy (float): Field of view used for projection.
+        
+        Returns:
+            tuple: (xyz, flag_click)
         """
         flag_click = False
         if self.viewer._right_double_click_pressed: # right double click
@@ -2900,13 +4064,16 @@ class MuJoCoParserClass(object):
             self.viewer._right_double_click_pressed = False
             flag_click = True
             if verbose:
-                print ("xyz clicked:(%.3f,%.3f,%.3f)"%
+                print ("right double click:(%.3f,%.3f,%.3f)"%
                        (self.xyz_right_double_click[0],self.xyz_right_double_click[1],self.xyz_right_double_click[2]))
         return self.xyz_right_double_click,flag_click
     
     def is_right_double_clicked(self):
-        """ 
-            Check right double click
+        """
+        Check if a right double-click event has occurred.
+        
+        Returns:
+            bool: True if detected, False otherwise.
         """
         if self.viewer._right_double_click_pressed: # right double click
             viewer_mouse_xy = self.get_viewer_mouse_xy()
@@ -2919,7 +4086,15 @@ class MuJoCoParserClass(object):
         
     def get_body_name_closest(self,xyz,body_names=None,verbose=False):
         """
-            Get the closest body name to xyz
+        Determine which body is closest to the given 3D point.
+        
+        Parameters:
+            xyz (np.array): The query 3D point.
+            body_names (list): List of body names to consider (if None, all bodies are considered).
+            verbose (bool): If True, print the selected body.
+        
+        Returns:
+            tuple: (body_name_closest, p_body_closest)
         """
         if body_names is None:
             body_names = self.body_names
@@ -2940,7 +4115,13 @@ class MuJoCoParserClass(object):
     # Inverse kinematics
     def get_J_body(self,body_name):
         """
-            Get Jocobian matrices of a body
+        Compute the Jacobian matrices (position and rotation) for the specified body.
+        
+        Parameters:
+            body_name (str): Name of the body.
+        
+        Returns:
+            tuple: (J_p, J_R, J_full) where J_full is the stacked Jacobian.
         """
         J_p = np.zeros((3,self.n_dof)) # nv: nDoF
         J_R = np.zeros((3,self.n_dof))
@@ -2950,7 +4131,13 @@ class MuJoCoParserClass(object):
 
     def get_J_geom(self,geom_name):
         """
-            Get Jocobian matrices of a geom
+        Compute the Jacobian matrices for the specified geometry.
+        
+        Parameters:
+            geom_name (str): Name of the geometry.
+        
+        Returns:
+            tuple: (J_p, J_R, J_full)
         """
         J_p = np.zeros((3,self.n_dof)) # nv: nDoF
         J_R = np.zeros((3,self.n_dof))
@@ -2968,8 +4155,23 @@ class MuJoCoParserClass(object):
             IK_R      = True,
         ):
         """
-            Get IK ingredients
+        Compute the Jacobian and error vector needed for inverse kinematics.
+        
+        Parameters:
+            body_name (str): Name of the body (if provided).
+            geom_name (str): Name of the geometry (if provided).
+            p_trgt (np.array): Target position.
+            R_trgt (np.array): Target rotation matrix.
+            IK_P (bool): Whether to include position error.
+            IK_R (bool): Whether to include orientation error.
+        
+        Returns:
+            tuple: (J, err) where J is the Jacobian and err is the error vector.
         """
+
+        if p_trgt is None: IK_P = False
+        if R_trgt is None: IK_R = False
+
         if body_name is not None:
             J_p,J_R,J_full = self.get_J_body(body_name=body_name)
             p_curr,R_curr = self.get_pR_body(body_name=body_name)
@@ -3000,102 +4202,61 @@ class MuJoCoParserClass(object):
     
     def damped_ls(self,J,err,eps=1e-6,stepsize=1.0,th=5*np.pi/180.0):
         """
-            Dampled least square for IK
+        Solve the inverse kinematics using the damped least squares method.
+        
+        Parameters:
+            J (np.array): Jacobian matrix.
+            err (np.array): Error vector.
+            eps (float): Damping factor.
+            stepsize (float): Step size multiplier.
+            th (float): Threshold for scaling the result.
+        
+        Returns:
+            np.array: The computed joint increments (dq).
         """
         dq = stepsize*np.linalg.solve(a=(J.T@J)+eps*np.eye(J.shape[1]),b=J.T@err)
         dq = trim_scale(x=dq,th=th)
         return dq
-
-    def onestep_ik(
-            self,
-            body_name  = None,
-            geom_name  = None,
-            p_trgt     = None,
-            R_trgt     = None,
-            IK_P       = True,
-            IK_R       = True,
-            joint_idxs = None,
-            stepsize   = 1,
-            eps        = 1e-1,
-            th         = 5*np.pi/180.0,
-        ):
-        """
-            Solve IK for a single step
-        """
-        J,err = self.get_ik_ingredients(
-            body_name = body_name,
-            geom_name = geom_name,
-            p_trgt    = p_trgt,
-            R_trgt    = R_trgt,
-            IK_P      = IK_P,
-            IK_R      = IK_R,
-            )
-        dq = self.damped_ls(J,err,stepsize=stepsize,eps=eps,th=th)
-        if joint_idxs is None:
-            joint_idxs = self.rev_joint_idxs
-        q = self.get_q(joint_idxs=joint_idxs)
-        q = q + dq[joint_idxs]
-        # FK
-        self.forward(q=q,joint_idxs=joint_idxs)
-        return q, err
     
-    def is_key_pressed(self,char=None,chars=None,upper=True):
-        """ 
-            Check keyboard pressed (high-level function calling 'check_key_pressed()')
+    def check_key_pressed(self,char=None):
+        """
+        High-level function to check if a key has been pressed.
+        
+        Parameters:
+            char (str): Single character to check.
+        Returns:
+            bool: True if the key was pressed, False otherwise.
         """
         if self.viewer._is_key_pressed:
-            self.viewer._is_key_pressed = False
-            return self.check_key_pressed(char=char,chars=chars,upper=upper)
+            if self.get_key_pressed() == char:
+                self.viewer._is_key_pressed = False
+                return True
+            else:
+                return False
         else:
             return False
-
-    def check_key_pressed(self,char=None,chars=None,upper=True):
-        """
-            Check keyboard pressed from a character (e.g., 'a','b','1', or ['a','b','c'])
-        """
-        # Check a single character
-        if char is not None:
-            if upper: char = char.upper()
-            if self.get_key_pressed() == char:
-                return True
         
-        # Check a list of characters
-        if chars is not None:
-            for _char in chars:
-                if upper: _char = _char.upper()
-                if self.get_key_pressed() == _char:
-                    return True
-        
-        # (default) Return False
-        return False
-        
-    def get_key_pressed(self,to_int=False):
-        """ 
-            Get keyboard pressed
+    def get_key_pressed(self):
         """
-        # if len(self.viewer._key_pressed) == 0: return None
-        char = []
-        for key in self.viewer._key_pressed:
-            if key == glfw.KEY_SPACE: key = 'SPACE'
-            elif key == glfw.KEY_RIGHT: key = 'RIGHT'
-            elif key == glfw.KEY_LEFT: key = 'LEFT'
-            elif key == glfw.KEY_UP: key = 'UP'
-            elif key == glfw.KEY_DOWN: key = 'DOWN'
-            elif key == glfw.KEY_ENTER: key = 'ENTER'
-            else: key = chr(key)
-            char.append(key)
-        # if to_int: char = int(char) # to integer
-        return char
+        Retrieve the last key that was pressed.
+        
+        Returns:
+            str: The key that was pressed.
+        """
+        return self.viewer._key_pressed
     
     def open_interactive_viewer(self):
         """
-            Open interactive viewer
+        Launch an interactive viewer for the simulation.
+        
+        Returns:
+            None
         """
         from mujoco import viewer
         viewer.launch(self.model)
         
     def compensate_gravity(self,root_body_names):
-        """ 
+        """
             Gravity compensation
         """
         qfrc_applied = self.data.qfrc_applied
@@ -3108,7 +4269,117 @@ class MuJoCoParserClass(object):
             qfrc_applied[:] -= self.model.opt.gravity * total_mass @ jac
             
     def set_rangefinder_rgba(self,rgba=(1,1,0,0.1)):
-        """ 
-            Set range finder color
+        """
+        Set the RGBA color for the rangefinder visualization.
+        
+        Parameters:
+            rgba (tuple): Color in RGBA format.
+        
+        Returns:
+            None
         """
         self.model.vis.rgba.rangefinder = np.array(rgba,dtype=np.float32)
+        
+    def tic(self):
+        """ 
+        Start a timer for performance measurement.
+        
+        Returns:
+            None
+        """
+        self.tt.tic()
+        
+    def toc(self):
+        """
+        Return the elapsed time since the last tic() call.
+        
+        Returns:
+            float: Elapsed time in seconds.
+        """
+        return self.tt.toc()
+        
+    def sync_sim_wall_time(self):
+        """
+        Synchronize the simulation time with the wall time.
+        
+        Returns:
+            None
+        """
+        time_diff = self.get_sim_time() - self.get_wall_time()
+        if time_diff > 0: time.sleep(time_diff)
+
+    def get_key_pressed_list(self):
+        """
+        Get the list of keys that have been pressed.
+        
+        Returns:
+            list: List of pressed keys.
+        """
+        return list(self.viewer._key_pressed_set)
+    
+    def get_key_repeated_list(self):
+        """
+        Get the list of keys that have been repeatedly pressed.
+        
+        Returns:
+            list: List of repeatedly pressed keys.
+        """
+        return list(self.viewer._key_repeated_set)
+    
+    def pop_key_pressed_list(self,key=None):
+        """
+        Pop the last key from the pressed keys list.
+        
+        Returns:
+            str: The last pressed key.
+        """
+        if key is not None:
+            self.viewer._key_pressed_set.discard(key)
+
+    def is_key_pressed_once(self,key=None,key_list=None):
+        """
+        Check if a specific key has been pressed once.
+        
+        Parameters:
+            key (str): Key to check.
+        
+        Returns:
+            bool: True if the key was pressed, False otherwise.
+        """
+        if key is not None:
+            if key in self.get_key_pressed_list():
+                self.pop_key_pressed_list(key=key)
+                return True
+            else:
+                return False
+        elif key_list is not None:
+            for key in key_list:
+                if key in self.get_key_pressed_list():
+                    self.pop_key_pressed_list(key=key)
+                    return True
+            return False
+        else:
+            return False
+        
+    def is_key_pressed_repeat(self,key=None,key_list=None):
+        """
+        Check if specific key(s) have been pressed continuously.
+        
+        Parameters:
+            key (str, optional): Single key to check.
+            key_list (list of str, optional): List of keys to check.
+                If both key and key_list are provided, only 'key' is used.
+
+        Returns:
+            bool: True if the key (or any key in key_list) is pressed, False otherwise.
+        """
+        if key is not None:
+            return key in self.get_key_pressed_list()+self.get_key_repeated_list()
+        elif key_list is not None:
+            for key in key_list:
+                if key in self.get_key_pressed_list()+self.get_key_repeated_list():
+                    return True
+            return False
+        else:
+            return False
+    

@@ -3,11 +3,12 @@ import random
 import numpy as np
 import xml.etree.ElementTree as ET
 from mujoco_env.mujoco_parser import MuJoCoParserClass
-from mujoco_env.utils import prettify, sample_xyzs, rotation_matrix
+from mujoco_env.utils import prettify, sample_xyzs, rotation_matrix, add_title_to_img
 from mujoco_env.ik import solve_ik
 from mujoco_env.transforms import rpy2r, r2rpy
 import os
 import copy
+import glfw
 
 class SimpleEnv:
     def __init__(self, 
@@ -46,14 +47,8 @@ class SimpleEnv:
             elevation         = -30, 
             transparent       = False,
             black_sky         = True,
-            use_rgb_overlay   = True,
-            loc_rgb_overlay   = 'top right',
-            use_rgb_overlay_2 = True,
-            loc_rgb_overlay_2 = 'bottom right',
-            use_rgb_overlay_3 = True,
-            loc_rgb_overlay_3 = 'bottom left',
-            use_rgb_overlay_4 = True,
-            loc_rgb_overlay_4 = 'top left',
+            use_rgb_overlay = False,
+            loc_rgb_overlay = 'top right',
         )
     def reset(self, seed = None):
         '''
@@ -162,14 +157,14 @@ class SimpleEnv:
             rgb_agent: np.array, rgb image from the agent's view
             rgb_ego: np.array, rgb image from the egocentric
         '''
-        self.rgb_agent,_,_,_ = self.env.get_fixed_cam_rgbd_pcd(
-            cam_name='agentview',downscale_pcd=0.1)
-        self.rgb_ego,_,_,_ = self.env.get_fixed_cam_rgbd_pcd(
-            cam_name='egocentric',downscale_pcd=0.1)
-        self.rgb_top,_,_,_ = self.env.get_fixed_cam_rgbd_pcd(
-            cam_name='topview',downscale_pcd=0.1)
-        self.rgb_side,_,_,_ = self.env.get_fixed_cam_rgbd_pcd(
-            cam_name='sideview',downscale_pcd=0.1)
+        self.rgb_agent = self.env.get_fixed_cam_rgb(
+            cam_name='agentview')
+        self.rgb_ego = self.env.get_fixed_cam_rgb(
+            cam_name='egocentric')
+        # self.rgb_top = self.env.get_fixed_cam_rgbd_pcd(
+        #     cam_name='topview')
+        self.rgb_side = self.env.get_fixed_cam_rgb(
+            cam_name='sideview')
         return self.rgb_agent, self.rgb_ego
         
 
@@ -182,10 +177,12 @@ class SimpleEnv:
         R_current = R_current @ np.array([[1,0,0],[0,0,1],[0,1,0 ]])
         self.env.plot_sphere(p=p_current, r=0.02, rgba=[0.95,0.05,0.05,0.5])
         self.env.plot_capsule(p=p_current, R=R_current, r=0.01, h=0.2, rgba=[0.05,0.95,0.05,0.5])
-        self.env.viewer.add_rgb_overlay(rgb_img_raw=self.rgb_agent)
-        self.env.viewer.add_rgb_overlay_2(rgb_img_raw=self.rgb_ego) # depth_to_gray_img(depth)
-        self.env.viewer.add_rgb_overlay_3(rgb_img_raw=self.rgb_top)
-        self.env.viewer.add_rgb_overlay_4(rgb_img_raw=self.rgb_side)
+        rgb_egocentric_view = add_title_to_img(self.rgb_ego,text='Egocentric View',shape=(640,480))
+        rgb_agent_view = add_title_to_img(self.rgb_agent,text='Agent View',shape=(640,480))
+        rgb_side_view = add_title_to_img(self.rgb_side,text='Top View',shape=(640,480))
+        self.env.viewer_rgb_overlay(rgb_agent_view,loc='top right')
+        self.env.viewer_rgb_overlay(rgb_egocentric_view,loc='bottom right')
+        self.env.viewer_rgb_overlay(rgb_side_view, loc='top left')
         self.env.render()
 
     def get_joint_state(self):
@@ -232,44 +229,44 @@ class SimpleEnv:
 
             ---------
             z: reset
+            SPACEBAR: gripper open/close
             ---------   
+
+
         '''
-        char = self.env.get_key_pressed()
+        # char = self.env.get_key_pressed()
         dpos = np.zeros(3)
         drot = np.eye(3)
-        if len(char) > 0: 
-            if 'S' in char:
-                dpos += np.array([0.007,0.0,0.0])
-            if 'W' in char:
-                dpos += np.array([-0.007,0.0,0.0])
-            if 'A' in char:
-                dpos += np.array([0.0,-0.007,0.0])
-            if 'D' in char:
-                dpos += np.array([0.0,0.007,0.0])
-            if 'R' in char:
-                dpos += np.array([0.0,0.0,0.007])
-            if 'F' in char:
-                dpos += np.array([0.0,0.0,-0.007])
-            if  'Q' in char:
-                drot = rotation_matrix(angle=0.1 * 0.3, direction=[0.0, 1.0, 0.0])[:3, :3]
-            if  'E' in char:
-                drot = rotation_matrix(angle=-0.1 * 0.3, direction=[0.0, 1.0, 0.0])[:3, :3]
-            if 'DOWN' in char:
-                drot = rotation_matrix(angle=0.1 * 0.3, direction=[1.0, 0.0, 0.0])[:3, :3]
-            if 'UP' in char:
-                drot = rotation_matrix(angle=-0.1 * 0.3, direction=[1.0, 0.0, 0.0])[:3, :3]
-            if 'LEFT' in char:
-                drot = rotation_matrix(angle=0.1 * 0.3, direction=[0.0, 0.0, 1.0])[:3, :3]
-            if 'RIGHT' in char:
-                drot = rotation_matrix(angle=-0.1 * 0.3, direction=[0.0, 0.0, 1.0])[:3, :3]
-            if 'Z' in char:
-                return np.zeros(7, dtype=np.float32), True
-        if "SPACE" in self.past_chars and not 'SPACE' in char:
+        if self.env.is_key_pressed_repeat(key=glfw.KEY_S):
+            dpos += np.array([0.007,0.0,0.0])
+        if self.env.is_key_pressed_repeat(key=glfw.KEY_W):
+            dpos += np.array([-0.007,0.0,0.0])
+        if self.env.is_key_pressed_repeat(key=glfw.KEY_A):
+            dpos += np.array([0.0,-0.007,0.0])
+        if self.env.is_key_pressed_repeat(key=glfw.KEY_D):
+            dpos += np.array([0.0,0.007,0.0])
+        if self.env.is_key_pressed_repeat(key=glfw.KEY_R):
+            dpos += np.array([0.0,0.0,0.007])
+        if self.env.is_key_pressed_repeat(key=glfw.KEY_F):
+            dpos += np.array([0.0,0.0,-0.007])
+        if  self.env.is_key_pressed_repeat(key=glfw.KEY_LEFT):
+            drot = rotation_matrix(angle=0.1 * 0.3, direction=[0.0, 1.0, 0.0])[:3, :3]
+        if  self.env.is_key_pressed_repeat(key=glfw.KEY_RIGHT):
+            drot = rotation_matrix(angle=-0.1 * 0.3, direction=[0.0, 1.0, 0.0])[:3, :3]
+        if self.env.is_key_pressed_repeat(key=glfw.KEY_DOWN):
+            drot = rotation_matrix(angle=0.1 * 0.3, direction=[1.0, 0.0, 0.0])[:3, :3]
+        if self.env.is_key_pressed_repeat(key=glfw.KEY_UP):
+            drot = rotation_matrix(angle=-0.1 * 0.3, direction=[1.0, 0.0, 0.0])[:3, :3]
+        if self.env.is_key_pressed_repeat(key=glfw.KEY_Q):
+            drot = rotation_matrix(angle=0.1 * 0.3, direction=[0.0, 0.0, 1.0])[:3, :3]
+        if self.env.is_key_pressed_repeat(key=glfw.KEY_E):
+            drot = rotation_matrix(angle=-0.1 * 0.3, direction=[0.0, 0.0, 1.0])[:3, :3]
+        if self.env.is_key_pressed_once(key=glfw.KEY_Z):
+            return np.zeros(7, dtype=np.float32), True
+        if self.env.is_key_pressed_once(key=glfw.KEY_SPACE):
             self.gripper_state =  not  self.gripper_state
-            
         drot = r2rpy(drot)
         action = np.concatenate([dpos, drot, np.array([self.gripper_state],dtype=np.float32)],dtype=np.float32)
-        self.past_chars = char
         return action, False
     
     def get_delta_q(self):

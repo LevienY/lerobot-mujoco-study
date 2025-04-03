@@ -16,7 +16,8 @@ from functools import partial
 from io import BytesIO
 import math
 from .transforms import t2p, rpy2r
-
+import cv2
+from PIL import ImageDraw, ImageFont
 def trim_scale(x,th):
     """
         Trim scale
@@ -607,3 +608,35 @@ def rotation_matrix(angle, direction, point=None):
         point = np.asarray(point[:3], dtype=np.float32)
         M[:3, 3] = point - np.dot(R, point)
     return M
+
+
+def add_title_to_img(img,text='Title',margin_top=30,color=(0,0,0),font_size=20,resize=True,shape=(300,300)):
+    """
+    Add title to image
+    """
+    # Resize
+    img_copied = img.copy()
+    if resize:
+        img_copied = cv2.resize(img_copied,shape,interpolation=cv2.INTER_NEAREST)
+    # Convert to PIL image
+    pil_img = Image.fromarray(img_copied)# 
+    width, height = pil_img.size
+    new_height = margin_top + height
+    # Create new image with top margin
+    new_img = Image.new("RGB", (width, new_height),color=(255,255,255))
+    # Paste the original image
+    new_img.paste(pil_img, (0, margin_top))
+    # Draw text
+    draw = ImageDraw.Draw(new_img)
+    font = ImageFont.load_default(size=font_size)
+    bbox = draw.textbbox((0,0),text,font=font)
+    # Center text
+    text_width  = bbox[2] - bbox[0]
+    text_height = bbox[3] - bbox[1]
+    x = (width - text_width) // 2
+    y = (margin_top - text_height) // 2
+    # Draw text
+    draw.text((x, y), text, font=font, fill=color)
+    img_with_title = np.array(new_img)
+    # Return
+    return img_with_title
