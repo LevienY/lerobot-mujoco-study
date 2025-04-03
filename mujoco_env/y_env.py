@@ -168,7 +168,7 @@ class SimpleEnv:
         return self.rgb_agent, self.rgb_ego
         
 
-    def render(self):
+    def render(self, teleop=False):
         '''
         Render the environment
         '''
@@ -179,10 +179,14 @@ class SimpleEnv:
         self.env.plot_capsule(p=p_current, R=R_current, r=0.01, h=0.2, rgba=[0.05,0.95,0.05,0.5])
         rgb_egocentric_view = add_title_to_img(self.rgb_ego,text='Egocentric View',shape=(640,480))
         rgb_agent_view = add_title_to_img(self.rgb_agent,text='Agent View',shape=(640,480))
-        rgb_side_view = add_title_to_img(self.rgb_side,text='Top View',shape=(640,480))
+        
         self.env.viewer_rgb_overlay(rgb_agent_view,loc='top right')
         self.env.viewer_rgb_overlay(rgb_egocentric_view,loc='bottom right')
-        self.env.viewer_rgb_overlay(rgb_side_view, loc='top left')
+        if teleop:
+            rgb_side_view = add_title_to_img(self.rgb_side,text='Side View',shape=(640,480))
+            self.env.viewer_rgb_overlay(rgb_side_view, loc='top left')
+            self.env.viewer_text_overlay(text1='Key Pressed',text2='%s'%(self.env.get_key_pressed_list()))
+            self.env.viewer_text_overlay(text1='Key Repeated',text2='%s'%(self.env.get_key_repeated_list()))
         self.env.render()
 
     def get_joint_state(self):
