@@ -23,7 +23,7 @@ class SimpleEnv2:
             state_type: str, type of state space, 'joint_angle' or 'ee_pose'
             seed: int, seed for random number generator
         """
-        # Load the xml file (default to y3 with orange+coke)
+        # Load the xml file (default to y3 with orange+apple)
         if xml_path is None:
             xml_path = 'asset/example_scene_y3.xml'
         self.env = MuJoCoParserClass(name='Tabletop',rel_xml_path=xml_path)
@@ -69,39 +69,38 @@ class SimpleEnv2:
         )
         self.env.forward(q=q_zero,joint_names=self.joint_names,increase_tick=False)
         
-        # set plate position
-        plate_xyz = np.array([0.3, -0.25, 0.82])
+        # Set plate position (left area, separated from objects)
+        plate_xyz = sample_xyzs(
+            1,
+            x_range   = [0.25, 0.40],
+            y_range   = [-0.35, -0.20],
+            z_range   = [0.82, 0.82],
+            min_dist  = 0.10,
+            xy_margin = 0.0
+        )[0]
         self.env.set_p_base_body(body_name='body_obj_plate_11',p=plate_xyz)
         self.env.set_R_base_body(body_name='body_obj_plate_11',R=np.eye(3,3))
-        # Set object positions
+        # Set object positions (right area, separated from plate by y-gap)
         obj_xyzs = sample_xyzs(
-            1,
-            x_range   = [+0.32,+0.33],
-            y_range   = [-0.00,+0.02],
-            z_range   = [0.83,0.83],
-            min_dist  = 0.16,
+            2,                              # sample both objects together
+            x_range   = [0.25, 0.40],
+            y_range   = [0.05, 0.20],       # y >= 0.05, plate is at y <= -0.15 → 0.2 gap
+            z_range   = [0.83, 0.83],
+            min_dist  = 0.12,               # min distance between objects
             xy_margin = 0.0
         )
         self.env.set_p_base_body(body_name='obj_orange',p=obj_xyzs[0,:])
         self.env.set_R_base_body(body_name='obj_orange',R=np.eye(3,3))
-        obj_xyzs = sample_xyzs(
-            1,
-            x_range   = [+0.29,+0.3],
-            y_range   = [0.19,+0.21],
-            z_range   = [0.83,0.83],
-            min_dist  = 0.16,
-            xy_margin = 0.0
-        )
-        self.env.set_p_base_body(body_name='obj_coke',p=obj_xyzs[0,:])
-        self.env.set_R_base_body(body_name='obj_coke',R=np.eye(3,3))
+        self.env.set_p_base_body(body_name='obj_apple',p=obj_xyzs[1,:])
+        self.env.set_R_base_body(body_name='obj_apple',R=np.eye(3,3))
         self.env.forward(increase_tick=False)
 
         # Set the initial pose of the robot
         self.last_q = copy.deepcopy(q_zero)
         self.q = np.concatenate([q_zero, np.array([0.0]*4)])
         self.p0, self.R0 = self.env.get_pR_body(body_name='tcp_link')
-        orange_init_pose, coke_init_pose, plate_init_pose = self.get_obj_pose()
-        self.obj_init_pose = np.concatenate([orange_init_pose, coke_init_pose, plate_init_pose],dtype=np.float32)
+        orange_init_pose, apple_init_pose, plate_init_pose = self.get_obj_pose()
+        self.obj_init_pose = np.concatenate([orange_init_pose, apple_init_pose, plate_init_pose],dtype=np.float32)
         for _ in range(100):
             self.step_env()
         self.set_instruction()
@@ -114,21 +113,21 @@ class SimpleEnv2:
         Set the instruction for the task
         """
         if given is None:
-            obj_candidates = ['orange', 'coke']
+            obj_candidates = ['orange', 'apple']
             obj1 = random.choice(obj_candidates)
             self.instruction = f'Place the {obj1} object on the plate.'
             if obj1 == 'orange':
                 self.obj_target = 'obj_orange'
             else:
-                self.obj_target = 'obj_coke'
+                self.obj_target = 'obj_apple'
         else:
             self.instruction = given
             if 'orange' in self.instruction:
                 self.obj_target = 'obj_orange'
-            elif 'coke' in self.instruction:
-                self.obj_target = 'obj_coke'
+            elif 'apple' in self.instruction:
+                self.obj_target = 'obj_apple'
             else:
-                raise ValueError('Instruction does not contain a valid object color (orange or coke).')
+                raise ValueError('Instruction does not contain a valid object color (orange or apple).')
 
     def step(self, action):
         '''
@@ -346,23 +345,23 @@ class SimpleEnv2:
             p_plate: np.array, position of the plate
         '''
         p_obj_orange = self.env.get_p_body('obj_orange')
-        p_obj_coke = self.env.get_p_body('obj_coke')
+        p_obj_apple = self.env.get_p_body('obj_apple')
         p_plate = self.env.get_p_body('body_obj_plate_11')
 
-        return p_obj_orange, p_obj_coke, p_plate
+        return p_obj_orange, p_obj_apple, p_plate
     
-    def set_obj_pose(self, p_obj_orange, p_obj_coke, p_plate):
+    def set_obj_pose(self, p_obj_orange, p_obj_apple, p_plate):
         '''
         Set the object poses
         args:
             p_obj_orange: np.array, position of the orange object
-            p_obj_coke: np.array, position of the coke object
+            p_obj_apple: np.array, position of the apple object
             p_plate: np.array, position of the plate
         '''
         self.env.set_p_base_body(body_name='obj_orange',p=p_obj_orange)
         self.env.set_R_base_body(body_name='obj_orange',R=np.eye(3,3))
-        self.env.set_p_base_body(body_name='obj_coke',p=p_obj_coke)
-        self.env.set_R_base_body(body_name='obj_coke',R=np.eye(3,3))
+        self.env.set_p_base_body(body_name='obj_apple',p=p_obj_apple)
+        self.env.set_R_base_body(body_name='obj_apple',R=np.eye(3,3))
         self.env.set_p_base_body(body_name='body_obj_plate_11',p=p_plate)
         self.env.set_R_base_body(body_name='body_obj_plate_11',R=np.eye(3,3))
         self.step_env()

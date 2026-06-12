@@ -26,9 +26,9 @@
     <!-- UR52 -->
     <include file="./robotis_omy/omy.xml" />
     
-    <!-- Orange and Coke + Plate -->
+    <!-- Orange and apple + Plate -->
     <include file="./tabletop/object/obj_orange.xml"/>
-    <include file="./tabletop/object/obj_coke.xml"/>
+    <include file="./tabletop/object/obj_apple.xml"/>
     <include file="./objaverse/plate_11/model_new.xml"/>
 
 </mujoco>

@@ -31,9 +31,9 @@ from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
 # SEED = 0 
 SEED = None #<- Uncomment this line to randomize the object positions
 
-REPO_NAME = 'orange_coke_language'
+REPO_NAME = 'orange_apple_language'
 NUM_DEMO = 20 # Number of demonstrations to collect
-ROOT = "./demo_data_orange_coke" # The root directory to save the demonstrations
+ROOT = "./demo_data_orange_apple" # The root directory to save the demonstrations
 
 # %%
 xml_path = './asset/example_scene_y3.xml'

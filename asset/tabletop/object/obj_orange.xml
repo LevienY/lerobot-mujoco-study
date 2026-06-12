@@ -1,8 +1,8 @@
 <mujoco model="obj_orange">
     <asset>
-        <texture type="2d" name="ycb-orange" file="ycb-orange.png" />
+        <texture type="2d" name="ycb-orange" file="../mesh/ycb-orange.png" />
         <material name="ycb-orange_mat" texture="ycb-orange" specular="0.5" shininess="0.5" />
-        <mesh file="ycb-orange.obj" />
+        <mesh file="../mesh/ycb-orange.obj" />
     </asset>
     <worldbody>
         <!-- 0.002 0.0153 0 -->
