@@ -12,7 +12,7 @@ import glfw
 
 class SimpleEnv2:
     def __init__(self, 
-                 xml_path,
+                xml_path=None,
                 action_type='eef_pose', 
                 state_type='joint_angle',
                 seed = None):
@@ -23,7 +23,9 @@ class SimpleEnv2:
             state_type: str, type of state space, 'joint_angle' or 'ee_pose'
             seed: int, seed for random number generator
         """
-        # Load the xml file
+        # Load the xml file (default to y3 with orange+coke)
+        if xml_path is None:
+            xml_path = 'asset/example_scene_y3.xml'
         self.env = MuJoCoParserClass(name='Tabletop',rel_xml_path=xml_path)
         self.action_type = action_type
         self.state_type = state_type
@@ -80,8 +82,8 @@ class SimpleEnv2:
             min_dist  = 0.16,
             xy_margin = 0.0
         )
-        self.env.set_p_base_body(body_name='body_obj_mug_5',p=obj_xyzs[0,:])
-        self.env.set_R_base_body(body_name='body_obj_mug_5',R=np.eye(3,3))
+        self.env.set_p_base_body(body_name='obj_orange',p=obj_xyzs[0,:])
+        self.env.set_R_base_body(body_name='obj_orange',R=np.eye(3,3))
         obj_xyzs = sample_xyzs(
             1,
             x_range   = [+0.29,+0.3],
@@ -90,16 +92,16 @@ class SimpleEnv2:
             min_dist  = 0.16,
             xy_margin = 0.0
         )
-        self.env.set_p_base_body(body_name='body_obj_mug_6',p=obj_xyzs[0,:])
-        self.env.set_R_base_body(body_name='body_obj_mug_6',R=np.eye(3,3))
+        self.env.set_p_base_body(body_name='obj_coke',p=obj_xyzs[0,:])
+        self.env.set_R_base_body(body_name='obj_coke',R=np.eye(3,3))
         self.env.forward(increase_tick=False)
 
         # Set the initial pose of the robot
         self.last_q = copy.deepcopy(q_zero)
         self.q = np.concatenate([q_zero, np.array([0.0]*4)])
         self.p0, self.R0 = self.env.get_pR_body(body_name='tcp_link')
-        mug_red_init_pose, mug_blue_init_pose, plate_init_pose = self.get_obj_pose()
-        self.obj_init_pose = np.concatenate([mug_red_init_pose, mug_blue_init_pose, plate_init_pose],dtype=np.float32)
+        orange_init_pose, coke_init_pose, plate_init_pose = self.get_obj_pose()
+        self.obj_init_pose = np.concatenate([orange_init_pose, coke_init_pose, plate_init_pose],dtype=np.float32)
         for _ in range(100):
             self.step_env()
         self.set_instruction()
@@ -112,21 +114,21 @@ class SimpleEnv2:
         Set the instruction for the task
         """
         if given is None:
-            obj_candidates = ['red', 'blue']
+            obj_candidates = ['orange', 'coke']
             obj1 = random.choice(obj_candidates)
-            self.instruction = f'Place the {obj1} mug on the plate.'
-            if obj1 == 'red':
-                self.obj_target = 'body_obj_mug_5'
+            self.instruction = f'Place the {obj1} object on the plate.'
+            if obj1 == 'orange':
+                self.obj_target = 'obj_orange'
             else:
-                self.obj_target = 'body_obj_mug_6'
+                self.obj_target = 'obj_coke'
         else:
             self.instruction = given
-            if 'red' in self.instruction:
-                self.obj_target = 'body_obj_mug_5'
-            elif 'blue' in self.instruction:
-                self.obj_target = 'body_obj_mug_6'
+            if 'orange' in self.instruction:
+                self.obj_target = 'obj_orange'
+            elif 'coke' in self.instruction:
+                self.obj_target = 'obj_coke'
             else:
-                raise ValueError('Instruction does not contain a valid object color (red or blue).')
+                raise ValueError('Instruction does not contain a valid object color (orange or coke).')
 
     def step(self, action):
         '''
@@ -328,9 +330,9 @@ class SimpleEnv2:
         Check if the mug is placed on the plate
         + Gripper should be open and move upward above 0.9
         '''
-        p_mug = self.env.get_p_body(self.obj_target)
+        p_obj = self.env.get_p_body(self.obj_target)
         p_plate = self.env.get_p_body('body_obj_plate_11')
-        if np.linalg.norm(p_mug[:2] - p_plate[:2]) < 0.1 and np.linalg.norm(p_mug[2] - p_plate[2]) < 0.6 and self.env.get_qpos_joint('rh_r1') < 0.1:
+        if np.linalg.norm(p_obj[:2] - p_plate[:2]) < 0.1 and np.linalg.norm(p_obj[2] - p_plate[2]) < 0.6 and self.env.get_qpos_joint('rh_r1') < 0.1:
             p = self.env.get_p_body('tcp_link')[2]
             if p > 0.9:
                 return True
@@ -343,24 +345,24 @@ class SimpleEnv2:
             p_mug_blue: np.array, position of the blue mug
             p_plate: np.array, position of the plate
         '''
-        p_mug_red = self.env.get_p_body('body_obj_mug_5')
-        p_mug_blue = self.env.get_p_body('body_obj_mug_6')
+        p_obj_orange = self.env.get_p_body('obj_orange')
+        p_obj_coke = self.env.get_p_body('obj_coke')
         p_plate = self.env.get_p_body('body_obj_plate_11')
 
-        return p_mug_red, p_mug_blue, p_plate
+        return p_obj_orange, p_obj_coke, p_plate
     
-    def set_obj_pose(self, p_mug_red, p_mug_blue, p_plate):
+    def set_obj_pose(self, p_obj_orange, p_obj_coke, p_plate):
         '''
         Set the object poses
         args:
-            p_mug_red: np.array, position of the red mug
-            p_mug_blue: np.array, position of the blue mug
+            p_obj_orange: np.array, position of the orange object
+            p_obj_coke: np.array, position of the coke object
             p_plate: np.array, position of the plate
         '''
-        self.env.set_p_base_body(body_name='body_obj_mug_5',p=p_mug_red)
-        self.env.set_R_base_body(body_name='body_obj_mug_5',R=np.eye(3,3))
-        self.env.set_p_base_body(body_name='body_obj_mug_6',p=p_mug_blue)
-        self.env.set_R_base_body(body_name='body_obj_mug_6',R=np.eye(3,3))
+        self.env.set_p_base_body(body_name='obj_orange',p=p_obj_orange)
+        self.env.set_R_base_body(body_name='obj_orange',R=np.eye(3,3))
+        self.env.set_p_base_body(body_name='obj_coke',p=p_obj_coke)
+        self.env.set_R_base_body(body_name='obj_coke',R=np.eye(3,3))
         self.env.set_p_base_body(body_name='body_obj_plate_11',p=p_plate)
         self.env.set_R_base_body(body_name='body_obj_plate_11',R=np.eye(3,3))
         self.step_env()

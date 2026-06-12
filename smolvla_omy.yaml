@@ -1,6 +1,6 @@
 dataset:
-  repo_id: omy_pnp_language # Repository ID
-  root: ./demo_data_language # Your root for data file!
+  repo_id: orange_coke_language # Repository ID
+  root: ./demo_data_orange_coke # Your root for data file!
 policy:
   type : smolvla
   chunk_size: 5

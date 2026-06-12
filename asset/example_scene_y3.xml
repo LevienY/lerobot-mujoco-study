@@ -1,0 +1,34 @@
+<mujoco model="Scanned Objects">
+    <!-- Memory? -->
+    <size memory="500M"/>
+    
+    <!-- Default options -->
+    <option integrator="RK4" noslip_iterations="20" />
+    <default>
+        <joint armature="0.1" damping="0.1" />
+        <default class="visual_only">
+            <geom type="mesh" contype="0" conaffinity="0" group="2" />
+        </default>
+        <default class="no_visual_collision">
+            <geom type="capsule" solimp=".9 .99 .001" solref=".015 1" group="3" />
+        </default>
+        <default class="visual_collision">
+            <geom type="mesh" solimp=".9 .99 .001" solref=".015 1" group="2" />
+        </default>
+    </default>
+    
+    <!-- Sky and floor -->
+    <include file="./tabletop/object/floor_isaac_style.xml" />
+
+    <!-- Table -->
+    <include file="./tabletop/object/object_table.xml" />
+
+    <!-- UR52 -->
+    <include file="./robotis_omy/omy.xml" />
+    
+    <!-- Orange and Coke + Plate -->
+    <include file="./tabletop/object/obj_orange.xml"/>
+    <include file="./tabletop/object/obj_coke.xml"/>
+    <include file="./objaverse/plate_11/model_new.xml"/>
+
+</mujoco>
