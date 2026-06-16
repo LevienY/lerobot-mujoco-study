@@ -1,6 +1,6 @@
 dataset:
-  repo_id: orange_coke_language # Repository ID
-  root: ./demo_data_orange_coke # Your root for data file!
+  repo_id: orange_apple_language # Repository ID
+  root: ./demo_data_orange_apple # Your root for data file!
 policy:
   type : pi0
   chunk_size: 5
@@ -8,7 +8,7 @@ policy:
   
 save_checkpoint: true
 output_dir: ./ckpt/pi0_omy # Save directory
-batch_size: 16
+batch_size: 2
 job_name : pi0_omy
 resume: false 
 seed : 42
@@ -23,5 +23,5 @@ use_policy_training_preset: true
 wandb:
   enable: true
   project: pi0_omy
-  entity: <your_wandb_entity>
+  # entity: <your_wandb_entity>
   disable_artifact: true

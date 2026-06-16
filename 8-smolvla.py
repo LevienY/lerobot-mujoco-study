@@ -47,7 +47,7 @@ device = 'cuda'
 
 # %%
 try:
-    dataset_metadata = LeRobotDatasetMetadata("omy_pnp_language", root='./demo_data_language')
+    dataset_metadata = LeRobotDatasetMetadata("orange_apple_language", root='./demo_data_orange_apple')
 except:
     dataset_metadata = LeRobotDatasetMetadata("omy_pnp_language", root='./omy_pnp_language')
 features = dataset_to_policy_features(dataset_metadata.features)
