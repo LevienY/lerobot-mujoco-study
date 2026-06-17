@@ -375,8 +375,25 @@ def train(cfg: TrainPipelineConfig):
         if cfg.save_checkpoint and is_saving_step and local_rank == 0:
             logging.info(f"Checkpoint policy after step {step}")
             checkpoint_dir = get_step_checkpoint_dir(cfg.output_dir, cfg.steps, step)
+
+            # 获取真正要保存的模型（穿透 DDP）
+            model_to_save = policy.module if is_distributed else policy
+
+            # ====== LoRA 训练时，手动保存基础模型的 config.json ======
+            if lora_rank > 0 and HAS_PEFT and isinstance(model_to_save, peft.PeftModel):
+                # 从 PeftModel 中取出基础策略（PI0Policy / SmolVLAPolicy）
+                base_model = model_to_save.base_model.model
+                base_config = base_model.config  # PI0Config / SmolVLAConfig 对象
+                # 转为字典并写入 config.json
+                import json
+                pretrained_dir = checkpoint_dir / "pretrained_model"
+                with open(pretrained_dir / "config.json", "w") as f:
+                    json.dump(base_config.to_dict(), f, indent=2)
+                logging.info(f"Saved base model config.json to {pretrained_dir}")
+            # ========================================================
+
             save_checkpoint(checkpoint_dir, step, cfg,
-                            policy.module if is_distributed else policy, 
+                            model_to_save, 
                             optimizer, lr_scheduler)
             update_last_checkpoint(checkpoint_dir)
             if wandb_logger:

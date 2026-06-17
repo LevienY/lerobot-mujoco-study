@@ -77,6 +77,8 @@ from lerobot.common.datasets.utils import dataset_to_policy_features
 import torch
 from PIL import Image
 import torchvision
+import os
+from peft import PeftModel
 
 # %% [markdown]
 # ### Load Policy
@@ -86,7 +88,7 @@ device = 'cuda'
 
 # %%
 try:
-    dataset_metadata = LeRobotDatasetMetadata("omy_pnp_language", root='./demo_data_language')
+    dataset_metadata = LeRobotDatasetMetadata("orange_apple_language", root='./demo_data_orange_apple')
 except:
     dataset_metadata = LeRobotDatasetMetadata("omy_pnp_language", root='./omy_pnp_language')
 features = dataset_to_policy_features(dataset_metadata.features)
@@ -99,8 +101,26 @@ cfg = PI0Config(input_features=input_features, output_features=output_features, 
 delta_timestamps = resolve_delta_timestamps(cfg, dataset_metadata)
 
 # %%
-# We can now instantiate our policy with this config and the dataset stats.
-policy = PI0Policy.from_pretrained('./ckpt/pi0_omy/checkpoints/last/pretrained_model', dataset_stats=dataset_metadata.stats)
+
+checkpoint_dir = './ckpt/pi0_omy/checkpoints/last/pretrained_model'
+# 自动判断是 LoRA 微调的 checkpoint 还是全量微调的 checkpoint
+if os.path.exists(os.path.join(checkpoint_dir, 'adapter_config.json')):
+    # ====== LoRA checkpoint：先加载基础模型，再挂载 LoRA adapter ======
+    print("检测到 LoRA checkpoint，从 HuggingFace 加载基础模型并注入 adapter...")
+    # 使用本地 cfg 对象（跳过远程 config.json 解析错误）
+    base_policy = PI0Policy.from_pretrained(
+        'lerobot/pi0', 
+        config=cfg,  # <--- 关键：传入已有的 PI0Config 对象
+        dataset_stats=dataset_metadata.stats)
+    policy = PeftModel.from_pretrained(base_policy, checkpoint_dir)
+    # 推荐 merge 一下，推理更快（merge 后不再需要 PeftModel 包装）
+    policy = policy.merge_and_unload()
+else:
+    # ====== 全量微调 checkpoint：正常加载 ======
+    print("加载完整模型 checkpoint...")
+    # We can now instantiate our policy with this config and the dataset stats.
+    policy = PI0Policy.from_pretrained('./ckpt/pi0_omy/checkpoints/last/pretrained_model', dataset_stats=dataset_metadata.stats)
+
 # You can load the trained policy from hub if you don't have the resources to train it.
 # policy = PI0Policy.from_pretrained("Jeongeun/omy_pnp_pi0", config=cfg, dataset_stats=dataset_metadata.stats)
 policy.to(device)
@@ -135,6 +155,8 @@ policy.eval()
 save_image = True
 IMG_TRANSFORM = get_default_transform()
 while PnPEnv.env.is_viewer_alive():
+    # PnPEnv.step_env()
+    PnPEnv.render()                            # 每步都渲染一帧
     PnPEnv.step_env()
     if PnPEnv.env.loop_every(HZ=20):
         # Check if the task is completed
