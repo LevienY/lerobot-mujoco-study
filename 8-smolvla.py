@@ -61,7 +61,7 @@ delta_timestamps = resolve_delta_timestamps(cfg, dataset_metadata)
 
 # %%
 # We can now instantiate our policy with this config and the dataset stats.
-policy = SmolVLAPolicy.from_pretrained('./ckpt/smolvla_omy/checkpoints/last/pretrained_model', dataset_stats=dataset_metadata.stats)
+policy = SmolVLAPolicy.from_pretrained('./ckpt/smolvla_omy2/checkpoints/last/pretrained_model', dataset_stats=dataset_metadata.stats)
 # You can load the trained policy from hub if you don't have the resources to train it.
 # policy = SmolVLAPolicy.from_pretrained("Jeongeun/omy_pnp_pi0", config=cfg, dataset_stats=dataset_metadata.stats)
 policy.to(device)

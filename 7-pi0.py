@@ -102,12 +102,13 @@ delta_timestamps = resolve_delta_timestamps(cfg, dataset_metadata)
 
 # %%
 
-checkpoint_dir = './ckpt/pi0_omy/checkpoints/last/pretrained_model'
+checkpoint_dir = './ckpt/pi0_omy/checkpoints/010000/pretrained_model'
 # 自动判断是 LoRA 微调的 checkpoint 还是全量微调的 checkpoint
 if os.path.exists(os.path.join(checkpoint_dir, 'adapter_config.json')):
     # ====== LoRA checkpoint：先加载基础模型，再挂载 LoRA adapter ======
     print("检测到 LoRA checkpoint，从 HuggingFace 加载基础模型并注入 adapter...")
     # 使用本地 cfg 对象（跳过远程 config.json 解析错误）
+    cfg.device = 'cpu'
     base_policy = PI0Policy.from_pretrained(
         'lerobot/pi0', 
         config=cfg,  # <--- 关键：传入已有的 PI0Config 对象
@@ -115,6 +116,7 @@ if os.path.exists(os.path.join(checkpoint_dir, 'adapter_config.json')):
     policy = PeftModel.from_pretrained(base_policy, checkpoint_dir)
     # 推荐 merge 一下，推理更快（merge 后不再需要 PeftModel 包装）
     policy = policy.merge_and_unload()
+    cfg.device = 'cuda'   # 切回来
 else:
     # ====== 全量微调 checkpoint：正常加载 ======
     print("加载完整模型 checkpoint...")
@@ -155,8 +157,6 @@ policy.eval()
 save_image = True
 IMG_TRANSFORM = get_default_transform()
 while PnPEnv.env.is_viewer_alive():
-    # PnPEnv.step_env()
-    PnPEnv.render()                            # 每步都渲染一帧
     PnPEnv.step_env()
     if PnPEnv.env.loop_every(HZ=20):
         # Check if the task is completed
@@ -179,13 +179,14 @@ while PnPEnv.env.is_viewer_alive():
         wrist_image = wrist_image.resize((256, 256))
         wrist_image = IMG_TRANSFORM(wrist_image)
         data = {
-            'observation.state': torch.tensor([state]).to(device),
+            'observation.state': torch.from_numpy(state).unsqueeze(0).float().to(device),
             'observation.image': image.unsqueeze(0).to(device),
             'observation.wrist_image': wrist_image.unsqueeze(0).to(device),
             'task': [PnPEnv.instruction],
         }
         # Select an action
-        action = policy.select_action(data)
+        with torch.no_grad():
+            action = policy.select_action(data)
         action = action[0,:7].cpu().detach().numpy()
         # Take a step in the environment
         _ = PnPEnv.step(action)

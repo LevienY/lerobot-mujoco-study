@@ -70,31 +70,32 @@ class SimpleEnv2:
         self.env.forward(q=q_zero,joint_names=self.joint_names,increase_tick=False)
         
         # Set plate position (left area, separated from objects)
-        plate_xyz = sample_xyzs(
-            1,
-            x_range   = [0.25, 0.40],
-            y_range   = [-0.35, -0.20],
-            z_range   = [0.82, 0.82],
-            min_dist  = 0.10,
-            xy_margin = 0.0
-        )[0]
+        plate_xyz = np.array([0.3, -0.25, 0.82])
         self.env.set_p_base_body(body_name='body_obj_plate_11',p=plate_xyz)
         self.env.set_R_base_body(body_name='body_obj_plate_11',R=np.eye(3,3))
         # Set object positions (right area, separated from plate by y-gap)
         obj_xyzs = sample_xyzs(
-            2,                              # sample both objects together
-            x_range   = [0.25, 0.40],
-            y_range   = [0.05, 0.20],       # y >= 0.05, plate is at y <= -0.15 → 0.2 gap
-            z_range   = [0.83, 0.83],
-            min_dist  = 0.12,               # min distance between objects
+            1,
+            x_range   = [+0.32,+0.33],
+            y_range   = [-0.00,+0.02],
+            z_range   = [0.83,0.83],
+            min_dist  = 0.16,
             xy_margin = 0.0
         )
         self.env.set_p_base_body(body_name='obj_orange',p=obj_xyzs[0,:])
         self.env.set_R_base_body(body_name='obj_orange',R=np.eye(3,3))
-        self.env.set_p_base_body(body_name='obj_apple',p=obj_xyzs[1,:])
+        obj_xyzs = sample_xyzs(
+            1,
+            x_range   = [+0.29,+0.3],
+            y_range   = [0.19,+0.21],
+            z_range   = [0.83,0.83],
+            min_dist  = 0.16,
+            xy_margin = 0.0
+        )
+        self.env.set_p_base_body(body_name='obj_apple',p=obj_xyzs[0,:])
         self.env.set_R_base_body(body_name='obj_apple',R=np.eye(3,3))
         self.env.forward(increase_tick=False)
-
+        
         # Set the initial pose of the robot
         self.last_q = copy.deepcopy(q_zero)
         self.q = np.concatenate([q_zero, np.array([0.0]*4)])
