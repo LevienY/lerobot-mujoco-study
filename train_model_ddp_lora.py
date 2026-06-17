@@ -95,13 +95,13 @@ def update_policy(
     device = get_device_from_parameters(policy)
     policy.train()
 
-    # 穿透 DDP 和 PEFT wrapper，拿到底层的 PI0Policy / SmolVLAPolicy
-    inner = policy.module if hasattr(policy, 'module') else policy       # 穿透 DDP
-    actual_model = inner.base_model.model if hasattr(inner, 'base_model') else inner  # 穿透 PEFT
+    # # 穿透 DDP 和 PEFT wrapper，拿到底层的 PI0Policy / SmolVLAPolicy
+    # inner = policy.module if hasattr(policy, 'module') else policy       # 穿透 DDP
+    # actual_model = inner.base_model.model if hasattr(inner, 'base_model') else inner  # 穿透 PEFT
 
 
     with torch.autocast(device_type=device.type) if use_amp else nullcontext():
-        loss, output_dict = actual_model.forward(batch)
+        loss, output_dict = policy.forward(batch)
         # TODO(rcadene): policy.unnormalize_outputs(out_dict)
     grad_scaler.scale(loss).backward()
 
