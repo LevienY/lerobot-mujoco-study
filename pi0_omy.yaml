@@ -7,7 +7,7 @@ policy:
   n_action_steps: 5
   
 save_checkpoint: true
-output_dir: ./ckpt/pi0_omy # Save directory
+output_dir: ./ckpt/pi0_omy2 # Save directory
 batch_size: 2
 job_name : pi0_omy
 resume: false 
